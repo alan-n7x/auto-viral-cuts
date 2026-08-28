@@ -1,10 +1,11 @@
-"""Gemini AI Analyzer module for Auto Viral Cuts."""
+"""Gemini AI Analyzer module for Auto Viral Cuts using google-genai."""
 
 import json
 import os
 import time
 from typing import Optional
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 from src.core.schemas import ProcessingOptions, ViralAnalysisResponse
@@ -13,7 +14,7 @@ load_dotenv()
 
 
 class GeminiAnalyzer:
-    """Handles video upload, state polling via File API, and structured viral analysis."""
+    """Handles video upload, state polling via File API, and structured viral analysis using google-genai."""
 
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None) -> None:
         """Initialize Gemini client with API key and model selection."""
@@ -22,7 +23,7 @@ class GeminiAnalyzer:
             raise ValueError(
                 "GEMINI_API_KEY não encontrada. Defina no ambiente ou passe no construtor."
             )
-        genai.configure(api_key=self.api_key)
+        self.client = genai.Client(api_key=self.api_key)
         self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     def analyze_video(
@@ -35,38 +36,35 @@ class GeminiAnalyzer:
         options = options or ProcessingOptions()
 
         print(f"[{time.strftime('%H:%M:%S')}] Enviando vídeo para a API do Gemini ({video_path})...")
-        video_file = genai.upload_file(path=video_path)
-        print(f"[{time.strftime('%H:%M:%S')}] Vídeo enviado. ID/URI: {video_file.name}")
+        video_file = self.client.files.upload(file=video_path)
+        print(f"[{time.strftime('%H:%M:%S')}] Vídeo enviado. Nome/URI: {video_file.name}")
 
         try:
             print(f"[{time.strftime('%H:%M:%S')}] Aguardando processamento do arquivo no Gemini...")
-            while video_file.state.name == "PROCESSING":
+            file_info = self.client.files.get(name=video_file.name)
+            while file_info.state.name == "PROCESSING":
                 time.sleep(5)
-                video_file = genai.get_file(video_file.name)
+                file_info = self.client.files.get(name=video_file.name)
 
-            if video_file.state.name != "ACTIVE":
+            if file_info.state.name != "ACTIVE":
                 raise RuntimeError(
-                    f"Falha no processamento do vídeo no Gemini. Estado atual: {video_file.state.name}"
+                    f"Falha no processamento do vídeo no Gemini. Estado atual: {file_info.state.name}"
                 )
             print(f"[{time.strftime('%H:%M:%S')}] Arquivo ativo e pronto para análise.")
 
             prompt = self._build_prompt(options)
 
             print(f"[{time.strftime('%H:%M:%S')}] Solicitando análise estruturada com o modelo {self.model_name}...")
-            
-            # Using structured outputs via JSON schema matching ViralAnalysisResponse
-            generation_config = {
-                "temperature": 0.4,
-                "response_mime_type": "application/json",
-                "response_schema": ViralAnalysisResponse,
-            }
 
-            model = genai.GenerativeModel(
-                model_name=self.model_name,
-                generation_config=generation_config,
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[video_file, prompt],
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    response_mime_type="application/json",
+                    response_schema=ViralAnalysisResponse,
+                ),
             )
-
-            response = model.generate_content([video_file, prompt])
             response_text = response.text
 
             print(f"[{time.strftime('%H:%M:%S')}] Análise concluída com sucesso.")
@@ -77,7 +75,7 @@ class GeminiAnalyzer:
             # Cleanup remote file from Gemini storage
             try:
                 print(f"[{time.strftime('%H:%M:%S')}] Removendo arquivo temporário dos servidores Gemini...")
-                genai.delete_file(video_file.name)
+                self.client.files.delete(name=video_file.name)
             except Exception as e:
                 print(f"Aviso: Não foi possível deletar o arquivo remoto do Gemini: {e}")
 

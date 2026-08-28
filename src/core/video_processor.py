@@ -3,7 +3,7 @@
 import os
 import subprocess
 import time
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 
 from src.core.schemas import (
@@ -76,9 +76,9 @@ class VideoProcessor:
             # Crop center 9:16 and scale to 1080x1920
             # If input is wider than 9:16: crop height = in_h, crop width = in_h * 9 / 16
             return (
-                f"scale=iw:ih,"
-                f"crop='if(gt(iw/ih\,9/16)\,ih*9/16\,iw)':'if(gt(iw/ih\,9/16)\,ih\,iw*16/9)',"
-                f"scale=1080:1920:flags=lanczos"
+                r"scale=iw:ih,"
+                r"crop='if(gt(iw/ih\,9/16)\,ih*9/16\,iw)':'if(gt(iw/ih\,9/16)\,ih\,iw*16/9)',"
+                r"scale=1080:1920:flags=lanczos"
             )
         elif crop_mode == CropMode.BLURRED_BACKGROUND:
             # Create blurred background + centered scaled foreground
