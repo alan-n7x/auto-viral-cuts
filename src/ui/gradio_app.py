@@ -108,6 +108,7 @@ def create_demo() -> gr.Blocks:
                 video_input = gr.Video(
                     label="Arraste e solte seu vídeo longo aqui (MP4, MKV, MOV, AVI)",
                     sources=["upload", "webcam"],
+                    interactive=True,
                 )
 
                 api_key_input = gr.Textbox(
