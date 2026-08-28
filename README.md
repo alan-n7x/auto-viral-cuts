@@ -36,9 +36,9 @@ auto-viral-cuts/
 
 ## ✨ Funcionalidades Principais
 
-1. **Análise Inteligente com Google Gemini 2.5 Flash:**
+1. **Análise Inteligente com Google Gemini 3.6 Flash:**
    - Upload de vídeos longos via Google File API com polling automático de estado.
-   - Extração estruturada de momentos virais com suporte a Pydantic (`response_schema`).
+   - Extração estruturada de momentos virais pela Interactions API com JSON Schema do Pydantic.
    - Retorno de ganchos (hooks), pontuação de virailidade (0-100), legendas prontas e hashtags estratégicas.
 
 2. **Processamento de Vídeo Preciso com FFmpeg:**

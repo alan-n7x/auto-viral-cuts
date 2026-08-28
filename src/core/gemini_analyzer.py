@@ -5,7 +5,6 @@ import os
 import time
 from typing import Optional
 from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
 from src.core.schemas import ProcessingOptions, ViralAnalysisResponse
@@ -24,7 +23,8 @@ class GeminiAnalyzer:
                 "GEMINI_API_KEY não encontrada. Defina no ambiente ou passe no construtor."
             )
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+        configured_model = model_name or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+        self.model_name = self._resolve_model_name(configured_model)
 
     def analyze_video(
         self, video_path: str, options: Optional[ProcessingOptions] = None
@@ -56,16 +56,32 @@ class GeminiAnalyzer:
 
             print(f"[{time.strftime('%H:%M:%S')}] Solicitando análise estruturada com o modelo {self.model_name}...")
 
-            response = self.client.models.generate_content(
+            interaction = self.client.interactions.create(
                 model=self.model_name,
-                contents=[video_file, prompt],
-                config=types.GenerateContentConfig(
-                    temperature=0.4,
-                    response_mime_type="application/json",
-                    response_schema=ViralAnalysisResponse,
-                ),
+                input=[
+                    {
+                        "type": "video",
+                        "uri": video_file.uri,
+                        "mime_type": video_file.mime_type,
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+                generation_config={"temperature": 0.4},
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": ViralAnalysisResponse.model_json_schema(),
+                },
             )
-            response_text = response.text
+
+            if interaction.status != "completed" or not interaction.output_text:
+                errors = "; ".join(str(error) for error in interaction.errors or [])
+                raise RuntimeError(
+                    "O Gemini não concluiu a análise do vídeo "
+                    f"(status: {interaction.status}). {errors}"
+                )
+
+            response_text = interaction.output_text
 
             print(f"[{time.strftime('%H:%M:%S')}] Análise concluída com sucesso.")
             parsed_data = json.loads(response_text)
@@ -78,6 +94,21 @@ class GeminiAnalyzer:
                 self.client.files.delete(name=video_file.name)
             except Exception as e:
                 print(f"Aviso: Não foi possível deletar o arquivo remoto do Gemini: {e}")
+
+    @staticmethod
+    def _resolve_model_name(model_name: str) -> str:
+        """Maps retired model names to a supported default model."""
+        retired_models = {"gemini-2.5-flash", "models/gemini-2.5-flash"}
+        normalized_name = model_name.strip()
+
+        if normalized_name in retired_models:
+            print(
+                "Aviso: GEMINI_MODEL=gemini-2.5-flash foi descontinuado. "
+                "Usando gemini-3.6-flash. Atualize seu arquivo .env."
+            )
+            return "gemini-3.6-flash"
+
+        return normalized_name
 
     def _build_prompt(self, options: ProcessingOptions) -> str:
         """Constructs the prompt guiding Gemini to find the best viral clips."""
