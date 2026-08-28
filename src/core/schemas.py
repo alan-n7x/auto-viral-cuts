@@ -32,13 +32,11 @@ class ClipMetadata(BaseModel):
     )
     start_time: str = Field(
         ...,
-        description="Timestamp de início no formato 'HH:MM:SS' ou 'MM:SS'.",
-        examples=["00:01:23", "01:23"],
+        description="Timestamp de início no formato 'HH:MM:SS' ou 'MM:SS' (ex: 00:01:23 ou 01:23).",
     )
     end_time: str = Field(
         ...,
-        description="Timestamp de fim no formato 'HH:MM:SS' ou 'MM:SS'.",
-        examples=["00:02:10", "02:10"],
+        description="Timestamp de fim no formato 'HH:MM:SS' ou 'MM:SS' (ex: 00:02:10 ou 02:10).",
     )
     duration_seconds: Optional[float] = Field(
         default=None,
