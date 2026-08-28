@@ -24,7 +24,7 @@ class GeminiAnalyzer:
                 "GEMINI_API_KEY não encontrada. Defina no ambiente ou passe no construtor."
             )
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
     def analyze_video(
         self, video_path: str, options: Optional[ProcessingOptions] = None
