@@ -1,4 +1,4 @@
-"""Video Processor module using FFmpeg with AMD/VAAPI hardware acceleration and CPU fallback."""
+"""Video Processor module using FFmpeg with AMD/VAAPI hardware acceleration and subtitle burn-in."""
 
 import os
 import subprocess
@@ -15,18 +15,21 @@ from src.core.schemas import (
     ProcessingResult,
     ViralAnalysisResponse,
 )
+from src.core.subtitle_generator import SubtitleGenerator
+from src.core.transcriber import AudioTranscriber, WordTimestamp
 
 load_dotenv()
 
 
 class VideoProcessor:
-    """Handles precision video cutting and 9:16 vertical re-framing using FFmpeg with GPU acceleration."""
+    """Handles precision video cutting, 9:16 vertical re-framing, and subtitle burn-in."""
 
     def __init__(self, output_dir: Optional[str] = None) -> None:
         """Initialize video processor with output directory."""
         self.output_dir = output_dir or os.getenv("OUTPUT_DIR", "output_cuts")
         os.makedirs(self.output_dir, exist_ok=True)
-        self._available_encoders: Optional[Set[str]] = None
+        self.transcriber = AudioTranscriber()
+        self.subtitle_generator = SubtitleGenerator()
 
     @classmethod
     def get_supported_encoders(cls) -> Set[str]:
@@ -150,9 +153,14 @@ class VideoProcessor:
             return 1920, 1080
 
     def _build_video_filter(
-        self, width: int, height: int, crop_mode: CropMode, is_vaapi: bool = False
+        self,
+        width: int,
+        height: int,
+        crop_mode: CropMode,
+        is_vaapi: bool = False,
+        subtitle_file: Optional[str] = None,
     ) -> str:
-        """Constructs FFmpeg filtergraph string for 9:16 vertical conversion."""
+        """Constructs FFmpeg filtergraph string for 9:16 vertical conversion and subtitle overlay."""
         # Target vertical resolution: 1080x1920
         if crop_mode == CropMode.CENTER_CROP:
             vf = (
@@ -178,6 +186,15 @@ class VideoProcessor:
                 "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
             )
 
+        # Apply stylized subtitles in software before GPU upload
+        if subtitle_file and os.path.exists(subtitle_file):
+            escaped_sub = (
+                subtitle_file.replace("\\", "/")
+                .replace(":", "\\:")
+                .replace("'", "'\\''")
+            )
+            vf += f",subtitles='{escaped_sub}'"
+
         if is_vaapi:
             vf += ",format=nv12,hwupload"
 
@@ -194,10 +211,17 @@ class VideoProcessor:
         in_h: int,
         resolved_accel: HwAccelMode,
         vaapi_device: Optional[str] = None,
+        subtitle_file: Optional[str] = None,
     ) -> Tuple[List[str], str]:
-        """Builds FFmpeg command line according to the selected hardware acceleration mode."""
+        """Builds FFmpeg command line according to selected hardware acceleration and subtitles."""
         is_vaapi = resolved_accel == HwAccelMode.VAAPI
-        vf_filter = self._build_video_filter(in_w, in_h, options.crop_mode, is_vaapi=is_vaapi)
+        vf_filter = self._build_video_filter(
+            in_w,
+            in_h,
+            options.crop_mode,
+            is_vaapi=is_vaapi,
+            subtitle_file=subtitle_file,
+        )
 
         cmd: List[str] = ["ffmpeg", "-y"]
 
@@ -262,8 +286,9 @@ class VideoProcessor:
         clip_meta: ClipMetadata,
         index: int,
         options: ProcessingOptions,
+        all_words: Optional[List[WordTimestamp]] = None,
     ) -> ProcessedClip:
-        """Cuts a single clip from the video using FFmpeg with GPU acceleration and CPU fallback."""
+        """Cuts a single clip from the video with GPU acceleration, subtitles, and CPU fallback."""
         start_sec = self.parse_timestamp(clip_meta.start_time)
         end_sec = self.parse_timestamp(clip_meta.end_time)
         duration = end_sec - start_sec
@@ -277,7 +302,41 @@ class VideoProcessor:
 
         in_w, in_h = self.get_video_dimensions(video_path)
 
-        # Resolve target acceleration
+        # 1. Handle subtitle generation if requested
+        subtitle_file: Optional[str] = None
+        has_subtitles = False
+
+        if options.burn_subtitles:
+            # If all_words not provided in batch, transcribe on demand
+            if all_words is None and self.transcriber.is_available():
+                try:
+                    all_words = self.transcriber.transcribe(
+                        video_path, model_size=options.whisper_model
+                    )
+                except Exception as e:
+                    print(f"Aviso: Erro na transcrição Whisper ({e}). Continuando sem legendas.")
+
+            if all_words:
+                clip_words = self.transcriber.get_words_for_interval(
+                    all_words, start_sec, end_sec
+                )
+                if clip_words:
+                    ass_filename = f"clip_{index:02d}_{safe_title}.ass"
+                    ass_path = os.path.abspath(os.path.join(self.output_dir, ass_filename))
+                    try:
+                        self.subtitle_generator.generate_ass(
+                            clip_words, ass_path, style=options.subtitle_style
+                        )
+                        subtitle_file = ass_path
+                        has_subtitles = True
+                        print(
+                            f"[{time.strftime('%H:%M:%S')}] Legendas geradas para corte {index} "
+                            f"({len(clip_words)} palavras, estilo '{options.subtitle_style.value}')."
+                        )
+                    except Exception as e:
+                        print(f"Aviso: Falha ao gerar arquivo de legenda .ass ({e}).")
+
+        # 2. Resolve target hardware acceleration
         env_hw = os.getenv("HW_ACCEL", "auto").lower()
         requested_accel = options.hw_accel
         if requested_accel == HwAccelMode.AUTO and env_hw != "auto":
@@ -290,6 +349,7 @@ class VideoProcessor:
         chosen_accel = detected_accel if requested_accel == HwAccelMode.AUTO else requested_accel
 
         accel_used_str = "cpu"
+        sub_info = " + Legendas" if has_subtitles else ""
         try:
             cmd, accel_desc = self._build_ffmpeg_cmd(
                 video_path=video_path,
@@ -301,11 +361,12 @@ class VideoProcessor:
                 in_h=in_h,
                 resolved_accel=chosen_accel,
                 vaapi_device=vaapi_dev,
+                subtitle_file=subtitle_file,
             )
             gpu_info = f" ({gpu_name})" if gpu_name and chosen_accel != HwAccelMode.CPU else ""
             print(
                 f"[{time.strftime('%H:%M:%S')}] Gerando corte {index}: '{clip_meta.title}' "
-                f"({clip_meta.start_time} - {clip_meta.end_time}) [{accel_desc}{gpu_info}]..."
+                f"({clip_meta.start_time} - {clip_meta.end_time}) [{accel_desc}{gpu_info}{sub_info}]..."
             )
             subprocess.run(
                 cmd,
@@ -331,6 +392,7 @@ class VideoProcessor:
                     in_w=in_w,
                     in_h=in_h,
                     resolved_accel=HwAccelMode.CPU,
+                    subtitle_file=subtitle_file,
                 )
                 subprocess.run(
                     cmd_cpu,
@@ -356,6 +418,8 @@ class VideoProcessor:
             duration_seconds=duration,
             status="completed",
             hw_accel_used=accel_used_str,
+            has_subtitles=has_subtitles,
+            subtitle_path=subtitle_file,
         )
 
     def process_all_clips(
@@ -368,9 +432,21 @@ class VideoProcessor:
         start_time_total = time.time()
         processed_clips: List[ProcessedClip] = []
 
+        # Run transcription once for the whole video if subtitles are enabled
+        all_words: Optional[List[WordTimestamp]] = None
+        if options.burn_subtitles and self.transcriber.is_available():
+            try:
+                all_words = self.transcriber.transcribe(
+                    video_path, model_size=options.whisper_model
+                )
+            except Exception as e:
+                print(f"Aviso: Falha na transcrição geral com Whisper ({e}). Cortes serão gerados sem legendas.")
+
         for idx, clip_meta in enumerate(analysis.clips, start=1):
             try:
-                processed = self.process_clip(video_path, clip_meta, idx, options)
+                processed = self.process_clip(
+                    video_path, clip_meta, idx, options, all_words=all_words
+                )
                 processed_clips.append(processed)
             except Exception as e:
                 print(f"Erro ao processar corte {idx}: {e}")

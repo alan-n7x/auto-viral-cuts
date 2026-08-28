@@ -122,6 +122,7 @@ def test_end_to_end_clip_rendering(tmp_path):
     options = ProcessingOptions(
         hw_accel=HwAccelMode.AUTO,
         crop_mode=CropMode.BLURRED_BACKGROUND,
+        burn_subtitles=False,
     )
     processed = vp.process_clip(test_video, clip_meta, 1, options)
 
@@ -129,3 +130,45 @@ def test_end_to_end_clip_rendering(tmp_path):
     assert os.path.exists(processed.file_path)
     assert processed.file_size_bytes > 0
     assert processed.hw_accel_used is not None
+
+
+def test_end_to_end_clip_rendering_with_subtitles(tmp_path):
+    """Verifies that a clip is rendered with burned-in subtitles on GPU/CPU."""
+    from src.core.transcriber import WordTimestamp
+
+    test_video = str(tmp_path / "test_input2.mp4")
+    gen_cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "testsrc=duration=2:size=1920x1080:rate=30",
+        "-f", "lavfi", "-i", "sine=frequency=1000:duration=2",
+        "-c:v", "libx264", "-preset", "ultrafast",
+        "-c:a", "aac",
+        test_video,
+    ]
+    subprocess.run(gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    output_dir = str(tmp_path / "cuts2")
+    vp = VideoProcessor(output_dir=output_dir)
+    clip_meta = ClipMetadata(
+        title="Hook Legendado",
+        start_time="00:00:00",
+        end_time="00:00:01",
+        virality_score=90,
+        virality_reason="Com fala",
+    )
+    options = ProcessingOptions(
+        hw_accel=HwAccelMode.AUTO,
+        crop_mode=CropMode.CENTER_CROP,
+        burn_subtitles=True,
+    )
+    dummy_words = [
+        WordTimestamp("TESTE", 0.1, 0.5),
+        WordTimestamp("LEGENDA", 0.5, 0.9),
+    ]
+    processed = vp.process_clip(test_video, clip_meta, 1, options, all_words=dummy_words)
+
+    assert processed.status == "completed"
+    assert processed.has_subtitles is True
+    assert processed.subtitle_path is not None
+    assert os.path.exists(processed.subtitle_path)
+    assert os.path.exists(processed.file_path)

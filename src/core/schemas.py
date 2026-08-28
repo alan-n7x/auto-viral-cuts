@@ -33,6 +33,14 @@ class HwAccelMode(str, Enum):
     CPU = "cpu"  # Pure CPU (libx264)
 
 
+class SubtitleStyle(str, Enum):
+    """Visual presets for dynamic viral subtitles."""
+
+    HORMOZI = "hormozi"  # Bold yellow active highlight, white secondary, thick black outline
+    NEON = "neon"  # Vibrant electric cyan with drop shadow
+    MINIMAL = "minimal"  # Clean white text with subtle shadow
+
+
 class ClipMetadata(BaseModel):
     """Metadata for a single viral clip candidate."""
 
@@ -152,6 +160,18 @@ class ProcessingOptions(BaseModel):
         default=HwAccelMode.AUTO,
         description="Modo de aceleração por hardware (auto, vaapi para AMD/Intel, nvenc, videotoolbox, cpu).",
     )
+    burn_subtitles: bool = Field(
+        default=True,
+        description="Embutir legendas animadas palavra por palavra no vídeo via FFmpeg.",
+    )
+    subtitle_style: SubtitleStyle = Field(
+        default=SubtitleStyle.HORMOZI,
+        description="Estilo visual das legendas dinâmicas.",
+    )
+    whisper_model: str = Field(
+        default="base",
+        description="Tamanho do modelo faster-whisper para transcrição (tiny, base, small).",
+    )
 
 
 class ProcessedClip(BaseModel):
@@ -188,6 +208,14 @@ class ProcessedClip(BaseModel):
     hw_accel_used: Optional[str] = Field(
         default=None,
         description="Backend de aceleração de hardware utilizado (ex: 'vaapi', 'cpu').",
+    )
+    has_subtitles: bool = Field(
+        default=False,
+        description="Indica se o corte possui legendas embutidas.",
+    )
+    subtitle_path: Optional[str] = Field(
+        default=None,
+        description="Caminho do arquivo .ass gerado para a legenda.",
     )
 
 
@@ -229,4 +257,5 @@ class HealthStatus(BaseModel):
     hw_accel_available: bool = False
     hw_accel_backend: Optional[str] = None
     gpu_detected: Optional[str] = None
+    whisper_available: bool = False
     version: str

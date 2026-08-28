@@ -9,6 +9,8 @@ from src.core.gemini_analyzer import GeminiAnalyzer
 from src.core.schemas import HealthStatus, ProcessingOptions, ProcessingResult, ViralAnalysisResponse
 from src.core.video_processor import VideoProcessor
 
+from src.core.transcriber import AudioTranscriber
+
 router = APIRouter(prefix="/api/v1", tags=["Auto Viral Cuts API"])
 
 TEMP_DIR = os.getenv("TEMP_DIR", "temp_uploads")
@@ -17,13 +19,14 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 @router.get("/health", response_model=HealthStatus)
 def health_check() -> HealthStatus:
-    """Checks system health, FFmpeg availability, Gemini configuration, and GPU acceleration."""
+    """Checks system health, FFmpeg availability, Gemini configuration, GPU acceleration, and Whisper."""
     ffmpeg_ok = shutil.which("ffmpeg") is not None
     gemini_key = os.getenv("GEMINI_API_KEY")
     gemini_ok = bool(gemini_key and len(gemini_key) > 5)
 
     hw_mode, _, gpu_name = VideoProcessor.detect_hw_accel()
     hw_ok = hw_mode.value != "cpu"
+    whisper_ok = AudioTranscriber.is_available()
 
     return HealthStatus(
         status="healthy" if (ffmpeg_ok and gemini_ok) else "degraded",
@@ -32,6 +35,7 @@ def health_check() -> HealthStatus:
         hw_accel_available=hw_ok,
         hw_accel_backend=hw_mode.value,
         gpu_detected=gpu_name,
+        whisper_available=whisper_ok,
         version="0.1.0",
     )
 

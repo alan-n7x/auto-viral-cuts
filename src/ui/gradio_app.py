@@ -5,7 +5,7 @@ from typing import Any, Tuple
 import gradio as gr
 
 from src.core.gemini_analyzer import GeminiAnalyzer
-from src.core.schemas import CropMode, HwAccelMode, PlatformPreset, ProcessingOptions
+from src.core.schemas import CropMode, HwAccelMode, PlatformPreset, ProcessingOptions, SubtitleStyle
 from src.core.video_processor import VideoProcessor
 
 
@@ -15,12 +15,15 @@ def run_viral_pipeline(
     target_platform: str,
     crop_mode: str,
     hw_accel: str,
+    burn_subtitles: bool,
+    subtitle_style: str,
+    whisper_model: str,
     max_clips: int,
     min_duration: int,
     max_duration: int,
     custom_prompt: str,
 ) -> Tuple[str, str, Any]:
-    """Executes the full Gemini analysis and FFmpeg clipping pipeline from the Gradio UI."""
+    """Executes the full Gemini analysis and FFmpeg clipping pipeline with subtitles from the Gradio UI."""
     if video_file is None:
         return "⚠️ Por favor, envie ou arraste um arquivo de vídeo válido.", "", None
 
@@ -42,6 +45,9 @@ def run_viral_pipeline(
             target_platform=PlatformPreset(target_platform),
             crop_mode=CropMode(crop_mode),
             hw_accel=HwAccelMode(hw_accel),
+            burn_subtitles=burn_subtitles,
+            subtitle_style=SubtitleStyle(subtitle_style),
+            whisper_model=whisper_model,
             max_clips=int(max_clips),
             min_duration_seconds=int(min_duration),
             max_duration_seconds=int(max_duration),
@@ -52,7 +58,7 @@ def run_viral_pipeline(
         analyzer = GeminiAnalyzer(api_key=api_key)
         analysis_result = analyzer.analyze_video(video_path, options)
 
-        # 2. Process clips with FFmpeg
+        # 2. Process clips with FFmpeg + faster-whisper
         processor = VideoProcessor()
         result = processor.process_all_clips(video_path, analysis_result, options)
 
@@ -78,6 +84,8 @@ def run_viral_pipeline(
             md_report += f"- 💡 **Motivo:** {meta.virality_reason}\n"
             if clip.hw_accel_used:
                 md_report += f"- ⚡ **Aceleração:** `{clip.hw_accel_used}`\n"
+            if clip.has_subtitles:
+                md_report += f"- 💬 **Legendas:** `Estilo {options.subtitle_style.value.upper()} (Highlight Ativo)`\n"
             if meta.suggested_caption:
                 md_report += f"- 📝 **Legenda Pronta:** {meta.suggested_caption}\n"
             if meta.hashtags:
@@ -118,7 +126,7 @@ def create_demo() -> gr.Blocks:
         gr.Markdown(
             """
             # 🚀 Auto Viral Cuts
-            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com Inteligência Artificial (Google Gemini) e FFmpeg acelerado por GPU.
+            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com IA (Gemini), legendas dinâmicas (faster-whisper) e FFmpeg acelerado por GPU.
             """
         )
 
@@ -160,6 +168,22 @@ def create_demo() -> gr.Blocks:
                     )
 
                 with gr.Row():
+                    burn_subtitles = gr.Checkbox(
+                        value=True,
+                        label="🔥 Embutir Legendas Dinâmicas (Word-level faster-whisper)",
+                    )
+                    subtitle_style = gr.Dropdown(
+                        choices=["hormozi", "neon", "minimal"],
+                        value="hormozi",
+                        label="Estilo da Legenda",
+                    )
+                    whisper_model = gr.Dropdown(
+                        choices=["tiny", "base", "small"],
+                        value="base",
+                        label="Precisão do Whisper",
+                    )
+
+                with gr.Row():
                     min_duration = gr.Slider(
                         minimum=10, maximum=60, value=15, step=5, label="Duração Mínima (s)"
                     )
@@ -173,7 +197,7 @@ def create_demo() -> gr.Blocks:
                     lines=2,
                 )
 
-                submit_btn = gr.Button("🔥 Gerar Cortes Virais", variant="primary", size="lg")
+                submit_btn = gr.Button("🔥 Gerar Cortes Virais com Legendas", variant="primary", size="lg")
 
             with gr.Column(scale=1):
                 gr.Markdown("### 2. Resultados e Pré-visualização")
@@ -189,6 +213,9 @@ def create_demo() -> gr.Blocks:
                 target_platform,
                 crop_mode,
                 hw_accel,
+                burn_subtitles,
+                subtitle_style,
+                whisper_model,
                 max_clips,
                 min_duration,
                 max_duration,
@@ -200,7 +227,7 @@ def create_demo() -> gr.Blocks:
         gr.Markdown(
             """
             ---
-            *Auto Viral Cuts v0.1.0 | Desenvolvido com Google Gemini 3.6 Flash & FFmpeg (GPU AMD RX 570 VAAPI / CPU).*
+            *Auto Viral Cuts v0.1.0 | Desenvolvido com Google Gemini 3.6 Flash, faster-whisper & FFmpeg (GPU AMD RX 570 VAAPI).*
             """
         )
 
