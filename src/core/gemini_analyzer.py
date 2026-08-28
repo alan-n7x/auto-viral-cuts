@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from typing import Optional
 from google import genai
@@ -67,33 +68,48 @@ class GeminiAnalyzer:
                     f"[{time.strftime('%H:%M:%S')}] Solicitando análise estruturada "
                     f"com o modelo {current_model_name}..."
                 )
-                try:
-                    interaction = self.client.interactions.create(
-                        model=current_model_name,
-                        input=[
-                            {
-                                "type": "video",
-                                "uri": video_file.uri,
-                                "mime_type": video_file.mime_type,
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        interaction = self.client.interactions.create(
+                            model=current_model_name,
+                            input=[
+                                {
+                                    "type": "video",
+                                    "uri": video_file.uri,
+                                    "mime_type": video_file.mime_type,
+                                },
+                                {"type": "text", "text": prompt},
+                            ],
+                            generation_config={"temperature": 0.4},
+                            response_format={
+                                "type": "text",
+                                "mime_type": "application/json",
+                                "schema": ViralAnalysisResponse.model_json_schema(),
                             },
-                            {"type": "text", "text": prompt},
-                        ],
-                        generation_config={"temperature": 0.4},
-                        response_format={
-                            "type": "text",
-                            "mime_type": "application/json",
-                            "schema": ViralAnalysisResponse.model_json_schema(),
-                        },
-                    )
+                        )
+                        break
+                    except Exception as error:
+                        is_transient = self._is_transient_model_error(error)
+                        if is_transient and attempt < max_retries - 1:
+                            delay = self._extract_retry_delay(error, default_delay=10.0)
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}] Limite de taxa/resposta da API "
+                                f"({current_model_name}). Aguardando {delay:.1f}s antes da tentativa {attempt + 2}/{max_retries}..."
+                            )
+                            time.sleep(delay)
+                            continue
+
+                        has_fallback = index < len(model_names) - 1
+                        if not has_fallback or not is_transient:
+                            raise
+                        print(
+                            f"Modelo {current_model_name} indisponível após erro/limite. "
+                            f"Tentando fallback {model_names[index + 1]}..."
+                        )
+                        break
+                if interaction is not None:
                     break
-                except Exception as error:
-                    has_fallback = index < len(model_names) - 1
-                    if not has_fallback or not self._is_transient_model_error(error):
-                        raise
-                    print(
-                        f"Modelo {current_model_name} indisponível temporariamente. "
-                        f"Tentando {model_names[index + 1]}..."
-                    )
 
             if interaction is None:
                 raise RuntimeError("Não foi possível iniciar a análise com os modelos configurados.")
@@ -135,13 +151,33 @@ class GeminiAnalyzer:
         return normalized_name
 
     @staticmethod
+    def _extract_retry_delay(error: Exception, default_delay: float = 10.0) -> float:
+        """Parses exception message to extract requested retry delay in seconds, if present."""
+        error_str = str(error)
+        match = re.search(r"retry (?:in|after) ([0-9\.]+)s?", error_str, re.IGNORECASE)
+        if match:
+            try:
+                delay = float(match.group(1))
+                return max(1.0, delay + 0.5)
+            except ValueError:
+                pass
+        return default_delay
+
+    @staticmethod
     def _is_transient_model_error(error: Exception) -> bool:
-        """Returns whether a Gemini error justifies an automatic model fallback."""
+        """Returns whether a Gemini error justifies an automatic retry or model fallback."""
         transient_markers = (
             "high demand",
             "overloaded",
             "temporarily unavailable",
             "server_error",
+            "quota exceeded",
+            "too_many_requests",
+            "429",
+            "rate limit",
+            "ratelimiterror",
+            "resource_exhausted",
+            "createinteractionclienterror",
         )
         error_message = str(error).lower()
         return any(marker in error_message for marker in transient_markers)
