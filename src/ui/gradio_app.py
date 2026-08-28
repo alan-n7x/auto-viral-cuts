@@ -89,7 +89,21 @@ def run_viral_pipeline(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"❌ Erro durante o processamento: {str(e)}", "", None
+        error_message = str(e)
+        transient_markers = (
+            "high demand",
+            "overloaded",
+            "temporarily unavailable",
+            "server_error",
+        )
+        if any(marker in error_message.lower() for marker in transient_markers):
+            return (
+                "⚠️ O Gemini está temporariamente sobrecarregado. "
+                "Tente novamente em alguns minutos.",
+                "",
+                None,
+            )
+        return f"❌ Erro durante o processamento: {error_message}", "", None
 
 
 def create_demo() -> gr.Blocks:

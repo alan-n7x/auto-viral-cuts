@@ -25,6 +25,9 @@ class GeminiAnalyzer:
         self.client = genai.Client(api_key=self.api_key)
         configured_model = model_name or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
         self.model_name = self._resolve_model_name(configured_model)
+        self.fallback_model_name = self._resolve_model_name(
+            os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash")
+        )
 
     def analyze_video(
         self, video_path: str, options: Optional[ProcessingOptions] = None
@@ -54,25 +57,46 @@ class GeminiAnalyzer:
 
             prompt = self._build_prompt(options)
 
-            print(f"[{time.strftime('%H:%M:%S')}] Solicitando análise estruturada com o modelo {self.model_name}...")
+            model_names = [self.model_name]
+            if self.fallback_model_name != self.model_name:
+                model_names.append(self.fallback_model_name)
 
-            interaction = self.client.interactions.create(
-                model=self.model_name,
-                input=[
-                    {
-                        "type": "video",
-                        "uri": video_file.uri,
-                        "mime_type": video_file.mime_type,
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-                generation_config={"temperature": 0.4},
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    "schema": ViralAnalysisResponse.model_json_schema(),
-                },
-            )
+            interaction = None
+            for index, current_model_name in enumerate(model_names):
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] Solicitando análise estruturada "
+                    f"com o modelo {current_model_name}..."
+                )
+                try:
+                    interaction = self.client.interactions.create(
+                        model=current_model_name,
+                        input=[
+                            {
+                                "type": "video",
+                                "uri": video_file.uri,
+                                "mime_type": video_file.mime_type,
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                        generation_config={"temperature": 0.4},
+                        response_format={
+                            "type": "text",
+                            "mime_type": "application/json",
+                            "schema": ViralAnalysisResponse.model_json_schema(),
+                        },
+                    )
+                    break
+                except Exception as error:
+                    has_fallback = index < len(model_names) - 1
+                    if not has_fallback or not self._is_transient_model_error(error):
+                        raise
+                    print(
+                        f"Modelo {current_model_name} indisponível temporariamente. "
+                        f"Tentando {model_names[index + 1]}..."
+                    )
+
+            if interaction is None:
+                raise RuntimeError("Não foi possível iniciar a análise com os modelos configurados.")
 
             if interaction.status != "completed" or not interaction.output_text:
                 errors = "; ".join(str(error) for error in interaction.errors or [])
@@ -98,8 +122,8 @@ class GeminiAnalyzer:
     @staticmethod
     def _resolve_model_name(model_name: str) -> str:
         """Maps retired model names to a supported default model."""
-        retired_models = {"gemini-2.5-flash", "models/gemini-2.5-flash"}
-        normalized_name = model_name.strip()
+        retired_models = {"gemini-2.5-flash"}
+        normalized_name = model_name.strip().removeprefix("models/")
 
         if normalized_name in retired_models:
             print(
@@ -109,6 +133,18 @@ class GeminiAnalyzer:
             return "gemini-3.6-flash"
 
         return normalized_name
+
+    @staticmethod
+    def _is_transient_model_error(error: Exception) -> bool:
+        """Returns whether a Gemini error justifies an automatic model fallback."""
+        transient_markers = (
+            "high demand",
+            "overloaded",
+            "temporarily unavailable",
+            "server_error",
+        )
+        error_message = str(error).lower()
+        return any(marker in error_message for marker in transient_markers)
 
     def _build_prompt(self, options: ProcessingOptions) -> str:
         """Constructs the prompt guiding Gemini to find the best viral clips."""
