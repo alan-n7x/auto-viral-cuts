@@ -24,9 +24,9 @@ gh issue create \
     --body "Migrar o processamento de vídeos longos de síncrono para workers em background com Celery + Redis para suportar alto volume de requisições na API."
 
 gh issue create \
-    --title "refactor: Otimizar velocidade de compressão FFmpeg com aceleração por GPU (NVENC/VideoToolbox)" \
+    --title "refactor: Otimizar velocidade de compressão FFmpeg com aceleração por GPU (AMD VAAPI/NVENC/VideoToolbox)" \
     --label "enhancement" \
-    --body "Detectar automaticamente hardware gráfico disponível (NVIDIA NVENC, Apple Silicon VideoToolbox) para acelerar a renderização dos cortes."
+    --body "Detectar automaticamente hardware gráfico disponível (AMD Radeon RX 570 via VAAPI, NVIDIA NVENC, Apple Silicon VideoToolbox) para acelerar a renderização dos cortes com fallback para CPU."
 
 gh issue create \
     --title "test: Adicionar testes unitários e de integração com pytest" \

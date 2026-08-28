@@ -23,6 +23,16 @@ class PlatformPreset(str, Enum):
     GENERAL = "general"
 
 
+class HwAccelMode(str, Enum):
+    """Hardware acceleration modes."""
+
+    AUTO = "auto"
+    VAAPI = "vaapi"  # AMD / Intel on Linux (e.g. Radeon RX 570 via /dev/dri/renderD128)
+    NVENC = "nvenc"  # NVIDIA NVENC
+    VIDEOTOOLBOX = "videotoolbox"  # Apple Silicon
+    CPU = "cpu"  # Pure CPU (libx264)
+
+
 class ClipMetadata(BaseModel):
     """Metadata for a single viral clip candidate."""
 
@@ -138,6 +148,10 @@ class ProcessingOptions(BaseModel):
         default=PlatformPreset.GENERAL,
         description="Plataforma alvo para otimização de hashtags e ganchos.",
     )
+    hw_accel: HwAccelMode = Field(
+        default=HwAccelMode.AUTO,
+        description="Modo de aceleração por hardware (auto, vaapi para AMD/Intel, nvenc, videotoolbox, cpu).",
+    )
 
 
 class ProcessedClip(BaseModel):
@@ -170,6 +184,10 @@ class ProcessedClip(BaseModel):
     status: str = Field(
         default="completed",
         description="Status do processamento ('completed', 'failed', etc.).",
+    )
+    hw_accel_used: Optional[str] = Field(
+        default=None,
+        description="Backend de aceleração de hardware utilizado (ex: 'vaapi', 'cpu').",
     )
 
 
@@ -208,4 +226,7 @@ class HealthStatus(BaseModel):
     status: str
     ffmpeg_available: bool
     gemini_configured: bool
+    hw_accel_available: bool = False
+    hw_accel_backend: Optional[str] = None
+    gpu_detected: Optional[str] = None
     version: str

@@ -17,15 +17,21 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 @router.get("/health", response_model=HealthStatus)
 def health_check() -> HealthStatus:
-    """Checks system health, FFmpeg availability, and Gemini configuration."""
+    """Checks system health, FFmpeg availability, Gemini configuration, and GPU acceleration."""
     ffmpeg_ok = shutil.which("ffmpeg") is not None
     gemini_key = os.getenv("GEMINI_API_KEY")
     gemini_ok = bool(gemini_key and len(gemini_key) > 5)
+
+    hw_mode, _, gpu_name = VideoProcessor.detect_hw_accel()
+    hw_ok = hw_mode.value != "cpu"
 
     return HealthStatus(
         status="healthy" if (ffmpeg_ok and gemini_ok) else "degraded",
         ffmpeg_available=ffmpeg_ok,
         gemini_configured=gemini_ok,
+        hw_accel_available=hw_ok,
+        hw_accel_backend=hw_mode.value,
+        gpu_detected=gpu_name,
         version="0.1.0",
     )
 

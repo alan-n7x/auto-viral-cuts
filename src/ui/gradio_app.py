@@ -1,11 +1,11 @@
 """Gradio UI module providing a Drag & Drop web interface for Auto Viral Cuts."""
 
 import os
-import gradio as gr
 from typing import Any, Tuple
+import gradio as gr
 
 from src.core.gemini_analyzer import GeminiAnalyzer
-from src.core.schemas import CropMode, PlatformPreset, ProcessingOptions
+from src.core.schemas import CropMode, HwAccelMode, PlatformPreset, ProcessingOptions
 from src.core.video_processor import VideoProcessor
 
 
@@ -14,6 +14,7 @@ def run_viral_pipeline(
     api_key_input: str,
     target_platform: str,
     crop_mode: str,
+    hw_accel: str,
     max_clips: int,
     min_duration: int,
     max_duration: int,
@@ -23,7 +24,6 @@ def run_viral_pipeline(
     if video_file is None:
         return "⚠️ Por favor, envie ou arraste um arquivo de vídeo válido.", "", None
 
-    # Handle file path in Gradio (can be string or file-like object)
     video_path = video_file.name if hasattr(video_file, "name") else str(video_file)
 
     if not os.path.exists(video_path):
@@ -41,6 +41,7 @@ def run_viral_pipeline(
         options = ProcessingOptions(
             target_platform=PlatformPreset(target_platform),
             crop_mode=CropMode(crop_mode),
+            hw_accel=HwAccelMode(hw_accel),
             max_clips=int(max_clips),
             min_duration_seconds=int(min_duration),
             max_duration_seconds=int(max_duration),
@@ -57,7 +58,7 @@ def run_viral_pipeline(
 
         if not result.clips:
             return (
-                f"⚠️ O vídeo foi analisado, mas nenhum corte foi gerado com sucesso.",
+                "⚠️ O vídeo foi analisado, mas nenhum corte foi gerado com sucesso.",
                 f"**Resumo do Vídeo:** {analysis_result.video_summary}",
                 None,
             )
@@ -73,8 +74,10 @@ def run_viral_pipeline(
             meta = clip.metadata
             md_report += f"#### **Corte #{clip.clip_index}: {meta.title}**\n"
             md_report += f"- ⏱️ **Timestamp:** `{meta.start_time}` até `{meta.end_time}` ({clip.duration_seconds}s)\n"
-            md_report += f"- 🔥 **Pontuação de Virallidade:** `{meta.virality_score}/100`\n"
+            md_report += f"- 🔥 **Pontuação de Viralidade:** `{meta.virality_score}/100`\n"
             md_report += f"- 💡 **Motivo:** {meta.virality_reason}\n"
+            if clip.hw_accel_used:
+                md_report += f"- ⚡ **Aceleração:** `{clip.hw_accel_used}`\n"
             if meta.suggested_caption:
                 md_report += f"- 📝 **Legenda Pronta:** {meta.suggested_caption}\n"
             if meta.hashtags:
@@ -108,11 +111,14 @@ def run_viral_pipeline(
 
 def create_demo() -> gr.Blocks:
     """Creates the Gradio UI blocks application."""
+    detected_mode, _, gpu_name = VideoProcessor.detect_hw_accel()
+    gpu_desc = f" ({gpu_name})" if gpu_name else ""
+
     with gr.Blocks(title="Auto Viral Cuts - IA & FFmpeg") as demo:
         gr.Markdown(
             """
             # 🚀 Auto Viral Cuts
-            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com Inteligência Artificial (Google Gemini) e FFmpeg.
+            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com Inteligência Artificial (Google Gemini) e FFmpeg acelerado por GPU.
             """
         )
 
@@ -144,9 +150,16 @@ def create_demo() -> gr.Blocks:
                     )
 
                 with gr.Row():
+                    hw_accel = gr.Dropdown(
+                        choices=["auto", "vaapi", "nvenc", "videotoolbox", "cpu"],
+                        value="auto",
+                        label=f"Aceleração de Hardware / GPU{gpu_desc}",
+                    )
                     max_clips = gr.Slider(
                         minimum=1, maximum=10, value=3, step=1, label="Máximo de Cortes"
                     )
+
+                with gr.Row():
                     min_duration = gr.Slider(
                         minimum=10, maximum=60, value=15, step=5, label="Duração Mínima (s)"
                     )
@@ -175,6 +188,7 @@ def create_demo() -> gr.Blocks:
                 api_key_input,
                 target_platform,
                 crop_mode,
+                hw_accel,
                 max_clips,
                 min_duration,
                 max_duration,
@@ -186,7 +200,7 @@ def create_demo() -> gr.Blocks:
         gr.Markdown(
             """
             ---
-            *Auto Viral Cuts v0.1.0 | Desenvolvido com Google Gemini 2.5 Flash & FFmpeg.*
+            *Auto Viral Cuts v0.1.0 | Desenvolvido com Google Gemini 3.6 Flash & FFmpeg (GPU AMD RX 570 VAAPI / CPU).*
             """
         )
 
