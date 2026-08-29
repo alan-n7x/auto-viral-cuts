@@ -60,10 +60,50 @@ def test_groq_analyzer_build_prompt_pt_br():
     formatted_transcript = "[00:00:10.000 -> 00:00:15.000] This is a viral test statement."
     prompt = analyzer._build_prompt(formatted_transcript, options)
 
-    assert "editor sênior especializado em cortes virais" in prompt
-    assert "tradutor audiovisual para Português do Brasil (PT-BR)" in prompt
-    assert "TRANSCRIÇÃO COM TIMESTAMPS:" in prompt
+    assert "editor sênior de cortes virais" in prompt
+    assert "localização para Português do Brasil (PT-BR)" in prompt
+    assert "TRANSCRIÇÃO ORIGINAL COM TIMESTAMPS:" in prompt
     assert formatted_transcript in prompt
+
+
+def test_groq_analyzer_parse_bare_array_response():
+    """Validates that GroqAnalyzer parses a bare JSON array returned by LLMs."""
+    analyzer = GroqAnalyzer(api_key="gsk_dummy")
+    raw_json = """
+    [
+      {
+        "corte_id": 1,
+        "title_pt": "Título chamativo em português",
+        "hook_pt": "Frase de impacto inicial do vídeo",
+        "start": 14.5,
+        "end": 52.0,
+        "virality_score": 95,
+        "reason_pt": "Gatilho de curiosidade ou valor entregue no trecho",
+        "subtitles_pt": [
+          {
+            "start": 14.5,
+            "end": 17.2,
+            "text": "Primeira frase traduzida sincronizada"
+          }
+        ]
+      }
+    ]
+    """
+    res = analyzer._parse_response(raw_json)
+    assert len(res.clips) == 1
+    clip = res.clips[0]
+    assert clip.title == "Título chamativo em português"
+    assert clip.title_pt == "Título chamativo em português"
+    assert clip.hook_pt == "Frase de impacto inicial do vídeo"
+    assert clip.start == 14.5
+    assert clip.end == 52.0
+    assert clip.start_time == "14.5"
+    assert clip.end_time == "52.0"
+    assert clip.virality_score == 95
+    assert clip.reason_pt == "Gatilho de curiosidade ou valor entregue no trecho"
+    assert len(clip.subtitles_pt) == 1
+    assert clip.subtitles_pt[0].text == "Primeira frase traduzida sincronizada"
+
 
 
 def test_groq_analyzer_analyze_transcript_mock():

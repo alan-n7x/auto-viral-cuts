@@ -2,7 +2,8 @@
 
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
 
 
 class CropMode(str, Enum):
@@ -68,20 +69,32 @@ class SubtitleCue(BaseModel):
 class ClipMetadata(BaseModel):
     """Metadata for a single viral clip candidate."""
 
-    title: str = Field(
-        ...,
+    title: Optional[str] = Field(
+        default=None,
         description="Título chamativo ou hook intrigante para atrair atenção imediata.",
     )
     title_pt: Optional[str] = Field(
         default=None,
         description="Título chamativo e instigante em Português do Brasil (PT-BR).",
     )
-    start_time: str = Field(
-        ...,
+    corte_id: Optional[int] = Field(
+        default=None,
+        description="Identificador numérico do corte.",
+    )
+    start: Optional[float] = Field(
+        default=None,
+        description="Timestamp de início em segundos numéricos (ex: 14.5).",
+    )
+    end: Optional[float] = Field(
+        default=None,
+        description="Timestamp de fim em segundos numéricos (ex: 52.0).",
+    )
+    start_time: Optional[str] = Field(
+        default=None,
         description="Timestamp de início no formato 'HH:MM:SS' ou 'MM:SS' (ex: 00:01:23 ou 01:23).",
     )
-    end_time: str = Field(
-        ...,
+    end_time: Optional[str] = Field(
+        default=None,
         description="Timestamp de fim no formato 'HH:MM:SS' ou 'MM:SS' (ex: 00:02:10 ou 02:10).",
     )
     duration_seconds: Optional[float] = Field(
@@ -94,8 +107,8 @@ class ClipMetadata(BaseModel):
         le=100,
         description="Pontuação estimada de potencial de viralização (0 a 100).",
     )
-    virality_reason: str = Field(
-        ...,
+    virality_reason: Optional[str] = Field(
+        default=None,
         description="Explicação detalhada do porquê o trecho tem alto potencial de retenção.",
     )
     reason_pt: Optional[str] = Field(
@@ -122,6 +135,47 @@ class ClipMetadata(BaseModel):
         default_factory=list,
         description="Lista de falas traduzidas para PT-BR sincronizadas com timestamps.",
     )
+
+    @model_validator(mode="after")
+    def _validate_fields_and_aliases(self) -> "ClipMetadata":
+        if not self.title and self.title_pt:
+            self.title = self.title_pt
+        elif not self.title_pt and self.title:
+            self.title_pt = self.title
+
+        if not self.virality_reason and self.reason_pt:
+            self.virality_reason = self.reason_pt
+        elif not self.reason_pt and self.virality_reason:
+            self.reason_pt = self.virality_reason
+
+        if not self.hook_summary and self.hook_pt:
+            self.hook_summary = self.hook_pt
+        elif not self.hook_pt and self.hook_summary:
+            self.hook_pt = self.hook_summary
+
+        if self.start is not None and not self.start_time:
+            self.start_time = str(self.start)
+        elif self.start_time and self.start is None:
+            try:
+                self.start = float(self.start_time)
+            except ValueError:
+                pass
+
+        if self.end is not None and not self.end_time:
+            self.end_time = str(self.end)
+        elif self.end_time and self.end is None:
+            try:
+                self.end = float(self.end_time)
+            except ValueError:
+                pass
+
+        if not self.title:
+            self.title = "Corte Viral"
+        if not self.virality_reason:
+            self.virality_reason = "Alto potencial de retenção"
+
+        return self
+
 
 
 
