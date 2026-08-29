@@ -2,25 +2,51 @@ import os
 import shutil
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, status
 
+import aiofiles
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+
+from src.api.dependencies import get_process_video_use_case, get_task_manager
+from src.application.task_manager import TaskManager
+from src.application.use_cases.process_video_use_case import ProcessVideoUseCase
 from src.core.gemini_analyzer import GeminiAnalyzer
 from src.core.schemas import (
+    AsyncTaskResponse,
     ClientCutManifest,
+    CropMode,
     HealthStatus,
+    HwAccelMode,
     PlatformPreset,
     ProcessingOptions,
     ProcessingResult,
+    SubtitleStyle,
+    TaskState,
+    TaskStatusResponse,
     ViralAnalysisResponse,
     WordTimestamp,
 )
-from src.core.video_processor import VideoProcessor
 from src.core.transcriber import AudioTranscriber
+from src.core.video_processor import VideoProcessor
 
 router = APIRouter(prefix="/api/v1", tags=["Auto Viral Cuts API"])
 
 TEMP_DIR = os.getenv("TEMP_DIR", "temp_uploads")
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+CHUNK_SIZE = 64 * 1024  # 64 KB chunks for NVMe high performance and low RAM consumption
+
+
+async def save_upload_file_stream(upload_file: UploadFile, destination_path: str) -> int:
+    """Streams an UploadFile to disk in 64KB chunks using aiofiles.
+
+    Avoids RAM memory spikes and leverages NVMe sequential write speed.
+    """
+    total_bytes = 0
+    async with aiofiles.open(destination_path, "wb") as out_file:
+        while chunk := await upload_file.read(CHUNK_SIZE):
+            await out_file.write(chunk)
+            total_bytes += len(chunk)
+    return total_bytes
 
 
 @router.get("/health", response_model=HealthStatus)
@@ -46,6 +72,84 @@ def health_check() -> HealthStatus:
     )
 
 
+@router.post(
+    "/process-video-async",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AsyncTaskResponse,
+)
+async def process_video_async_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    custom_prompt: Optional[str] = None,
+    max_clips: int = 5,
+    min_duration_seconds: int = 15,
+    max_duration_seconds: int = 60,
+    crop_mode: CropMode = CropMode.CENTER_CROP,
+    hw_accel: HwAccelMode = HwAccelMode.AUTO,
+    burn_subtitles: bool = True,
+    subtitle_style: SubtitleStyle = SubtitleStyle.HORMOZI,
+    target_platform: PlatformPreset = PlatformPreset.GENERAL,
+    use_case: ProcessVideoUseCase = Depends(get_process_video_use_case),
+    manager: TaskManager = Depends(get_task_manager),
+) -> AsyncTaskResponse:
+    """Receives a video file, streams it asynchronously to disk in 64KB chunks,
+
+    and enqueues background processing, returning HTTP 202 Accepted immediately.
+    """
+    task_id = str(uuid.uuid4())
+    ext = os.path.splitext(file.filename or "video.mp4")[1].lower()
+    if not ext:
+        ext = ".mp4"
+    dest_path = os.path.join(TEMP_DIR, f"task_{task_id}{ext}")
+
+    # 1. Stream file to disk in 64KB chunks with aiofiles (non-blocking, NVMe optimized)
+    await save_upload_file_stream(file, dest_path)
+
+    # 2. Register task in TaskManager
+    task = manager.create_task(
+        task_id=task_id, file_name=file.filename or "uploaded_video.mp4"
+    )
+
+    # 3. Build processing options
+    options = ProcessingOptions(
+        max_clips=max_clips,
+        min_duration_seconds=min_duration_seconds,
+        max_duration_seconds=max_duration_seconds,
+        crop_mode=crop_mode,
+        hw_accel=hw_accel,
+        burn_subtitles=burn_subtitles,
+        subtitle_style=subtitle_style,
+        target_platform=target_platform,
+        custom_prompt=custom_prompt,
+    )
+
+    # 4. Dispatch Use Case execution in background
+    background_tasks.add_task(use_case.execute, task_id, dest_path, options)
+
+    return AsyncTaskResponse(
+        task_id=task_id,
+        status=task.status,
+        message="Vídeo recebido e enfileirado com sucesso para processamento em background.",
+        file_name=task.file_name,
+        created_at=task.created_at,
+    )
+
+
+@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+def get_task_status_endpoint(
+    task_id: str,
+    manager: TaskManager = Depends(get_task_manager),
+) -> TaskStatusResponse:
+    """Returns the current execution status and generated cuts for a background task."""
+    task = manager.get_task(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tarefa com ID '{task_id}' não encontrada.",
+        )
+    return task
+
+
 @router.post("/analyze", response_model=ViralAnalysisResponse)
 async def analyze_video_endpoint(
     file: UploadFile = File(...),
@@ -55,8 +159,7 @@ async def analyze_video_endpoint(
     """Uploads a video and returns viral clip suggestions from Gemini AI."""
     temp_file_path = os.path.join(TEMP_DIR, file.filename or "uploaded_video.mp4")
     try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        await save_upload_file_stream(file, temp_file_path)
 
         analyzer = GeminiAnalyzer()
         options = ProcessingOptions(max_clips=max_clips, custom_prompt=custom_prompt)
@@ -86,8 +189,8 @@ async def generate_manifest_endpoint(
     crop_mode: str = "center_crop",
     whisper_model: str = "base",
 ) -> List[ClientCutManifest]:
-    """
-    Receives an audio or video file, runs Gemini intelligence + Whisper transcription,
+    """Receives an audio or video file, runs Gemini intelligence + Whisper transcription,
+
     and returns a structured client cut manifest for browser-side WebCodecs rendering.
     """
     ext = os.path.splitext(file.filename or "media.wav")[1].lower()
@@ -97,8 +200,7 @@ async def generate_manifest_endpoint(
     temp_file_path = os.path.join(TEMP_DIR, temp_file_name)
 
     try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        await save_upload_file_stream(file, temp_file_path)
 
         # 1. Transcribe audio with word-level timestamps using faster-whisper
         if not AudioTranscriber.is_available():
@@ -169,4 +271,5 @@ async def generate_manifest_endpoint(
                 os.remove(temp_file_path)
             except Exception:
                 pass
+
 

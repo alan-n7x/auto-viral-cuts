@@ -12,20 +12,30 @@ O projeto foi construído seguindo os mais altos padrões de engenharia de softw
 auto-viral-cuts/
 ├── src/
 │   ├── __init__.py
+│   ├── domain/                  # Camada de Domínio (Clean Architecture)
+│   │   └── ports/
+│   │       └── video_processor_port.py  # Porta abstrata (Contrato DIP)
+│   ├── application/             # Camada de Aplicação (Use Cases & Jobs)
+│   │   ├── task_manager.py      # Gerenciador thread-safe de tarefas em background
+│   │   └── use_cases/
+│   │       └── process_video_use_case.py # Caso de uso de processamento desacoplado
+│   ├── infrastructure/          # Camada de Infraestrutura (Adapters)
+│   │   └── adapters/
+│   │       └── local_processor_adapter.py # Adaptador local (FFmpeg, Whisper, Gemini)
 │   ├── core/
-│   │   ├── __init__.py
-│   │   ├── gemini_analyzer.py   # Upload, polling de estado da File API e análise estruturada com Pydantic
-│   │   ├── video_processor.py   # Execução FFmpeg (crop 9:16, cortes precisos, áudio AAC)
-│   │   └── schemas.py           # Modelos Pydantic (ClipMetadata, ProcessingOptions, ProcessingResult)
+│   │   ├── gemini_analyzer.py   # Upload otimizado, proxy leve e análise Gemini
+│   │   ├── video_processor.py   # Motor FFmpeg (1080x1920, GPU VAAPI scale_vaapi)
+│   │   ├── transcriber.py       # Transcrição com timestamps a nível de palavra
+│   │   ├── subtitle_generator.py # Geração de legendas ASS estilizadas
+│   │   └── schemas.py           # Modelos Pydantic (ClipMetadata, TaskState, etc.)
 │   ├── ui/
-│   │   ├── __init__.py
+│   │   ├── client_renderer/     # Studio WebCodecs 9:16 no navegador do cliente
 │   │   └── gradio_app.py        # Interface visual com Blocks e Drag & Drop
 │   ├── api/
-│   │   ├── __init__.py
-│   │   └── routes.py            # Endpoints REST iniciais no FastAPI
-│   └── main.py                  # Entrypoint principal (FastAPI + Gradio montado)
-├── setup_issues.sh              # Script Bash para criar automaticamente as GitHub Issues via GitHub CLI
-├── output_cuts/                 # Diretório local para salvar cortes (ignorado no git)
+│   │   ├── dependencies.py      # Injeção manual de dependência no FastAPI
+│   │   └── routes.py            # Endpoints REST (streaming aiofiles 64KB, 202 Accepted)
+│   └── main.py                  # Entrypoint principal (FastAPI + Gradio + Studio)
+├── tests/                       # 30 testes unitários e de integração com pytest
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
