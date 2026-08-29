@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Viral Cuts | Client-Side WebCodecs 9:16 Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="logo-area">
+        <span class="logo-icon">⚡</span>
+        <h1 class="app-title">Auto Viral Cuts <span>Client Studio</span></h1>
+      </div>
+      <div class="header-badges">
+        <span id="webcodecsBadge" class="badge badge-webcodecs">Verificando WebCodecs...</span>
+        <span class="badge badge-gpu">GPU Hardware Accel</span>
+        <a href="/ui" style="color: var(--text-muted); font-size: 0.8rem; text-decoration: none; margin-left: 0.75rem;">Modo Servidor (Gradio)</a>
+        <a href="/docs" style="color: var(--text-muted); font-size: 0.8rem; text-decoration: none; margin-left: 0.5rem;">API REST</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Studio Layout -->
+  <main class="main-layout">
+    <!-- Left Column: Video Input & Cuts Manifest List -->
+    <section class="glass-panel">
+      <h2 class="panel-title"><i>📁</i> 1. Vídeo & Inteligência</h2>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="video/*,audio/*">
+        <span class="dropzone-icon">🎬</span>
+        <p class="dropzone-text">Arraste seu vídeo aqui ou clique</p>
+        <p class="dropzone-sub">MP4, MOV, MKV, WebM (zero upload de vídeo!)</p>
+      </div>
+
+      <!-- File info (local) -->
+      <div class="file-info-box" id="fileInfoBox">
+        <div class="file-info-row">
+          <span>Arquivo:</span>
+          <span id="fileNameVal">-</span>
+        </div>
+        <div class="file-info-row">
+          <span>Tamanho:</span>
+          <span id="fileSizeVal">-</span>
+        </div>
+        <div class="file-info-row">
+          <span>Duração:</span>
+          <span id="fileDurationVal">-</span>
+        </div>
+        <div class="file-info-row">
+          <span>Resolução:</span>
+          <span id="fileResVal">-</span>
+        </div>
+      </div>
+
+      <!-- Manifest Options -->
+      <div class="form-group">
+        <label class="form-label" for="maxClipsSelect">Quantidade de Cortes Virais:</label>
+        <select id="maxClipsSelect" class="form-select">
+          <option value="3">3 Cortes Estratégicos</option>
+          <option value="5" selected>5 Cortes (Recomendado)</option>
+          <option value="8">8 Cortes Rápidos</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="customPromptInput">Direcionamento Opcional (Nicho/Tema):</label>
+        <input type="text" id="customPromptInput" class="form-input" placeholder="Ex: Foque nos momentos mais polêmicos ou engraçados">
+      </div>
+
+      <button id="btnGenerateManifest" class="btn btn-primary" disabled>
+        <span>🤖</span> Extrair Áudio & Gerar Cortes IA
+      </button>
+
+      <!-- Status Box -->
+      <div class="status-box" id="statusBox">
+        <div class="status-text" id="statusText">Aguardando arquivo...</div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+      </div>
+
+      <!-- Generated Cuts -->
+      <div style="margin-top: 1.5rem;">
+        <h3 class="panel-title" style="margin-bottom: 0.5rem; font-size: 0.9rem;">
+          <i>🔥</i> Cortes Identificados
+        </h3>
+        <div class="cuts-list-container" id="cutsListContainer">
+          <div style="text-align: center; color: var(--text-dim); font-size: 0.8rem; padding: 2rem 0;">
+            Nenhum corte gerado ainda. Selecione um vídeo acima para iniciar.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Center Column: 9:16 Canvas Live Player -->
+    <section class="player-column">
+      <div class="canvas-wrapper">
+        <canvas id="previewCanvas"></canvas>
+        <div class="canvas-placeholder" id="canvasPlaceholder">
+          <span class="canvas-placeholder-icon">📱</span>
+          <p style="font-weight: 600; margin-bottom: 0.35rem;">Canvas 9:16 (1080x1920)</p>
+          <p style="font-size: 0.8rem;">Selecione um vídeo e um corte para pré-visualizar com enquadramento e legendas dinâmicas</p>
+        </div>
+      </div>
+
+      <!-- Player Controls -->
+      <div class="player-controls">
+        <div class="timeline-row">
+          <button id="btnPlayPause" class="btn-ctrl" title="Reproduzir / Pausar">▶️</button>
+          <input type="range" id="seekBar" class="seek-bar" min="0" max="100" value="0" step="0.1">
+          <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: WebCodecs GPU Export Panel -->
+    <section class="glass-panel export-panel">
+      <h2 class="panel-title"><i>⚡</i> 2. Exportação WebCodecs GPU</h2>
+
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+        Renderização acelerada por hardware no navegador. O vídeo é cortado, enquadrado e legendado diretamente pela GPU do seu dispositivo.
+      </p>
+
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="stat-label">Corte Ativo</div>
+          <div class="stat-val" id="statCutTitle" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Duração</div>
+          <div class="stat-val" id="statCutDuration">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Palavras Sincronizadas</div>
+          <div class="stat-val" id="statCutWords">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Enquadramento</div>
+          <div class="stat-val" style="color: var(--accent-cyan);">9:16 Center</div>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label" for="resolutionSelect">Resolução de Renderização:</label>
+        <select id="resolutionSelect" class="form-select">
+          <option value="1080x1920" selected>1080x1920 (Full HD Vertical 9:16)</option>
+          <option value="720x1280">720x1280 (HD Rápido)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Estilo das Legendas:</label>
+        <div style="font-size: 0.8rem; color: var(--text-main); background: rgba(0,0,0,0.25); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+          <strong style="color: var(--accent-gold);">⚡ Hormozi Style:</strong> Palavra ativa destacada em amarelo vibrante com contorno preto grosso e escala dinâmica.
+        </div>
+      </div>
+
+      <button id="btnExport" class="btn btn-export" disabled>
+        <span>🎬</span> Renderizar & Baixar MP4 (GPU)
+      </button>
+
+      <!-- Export progress bar -->
+      <div class="export-progress-area" id="exportProgressArea">
+        <div class="export-status-label" id="exportStatusLabel">
+          <span>Iniciando codificação...</span>
+          <span>0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="exportProgressFill"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    Auto Viral Cuts &bull; Arquitetura Híbrida de Ultra-Baixo Custo &bull; IA no Servidor + Renderização WebCodecs no Cliente
+  </footer>
+
+  <script type="module" src="./renderer.js"></script>
+</body>
+</html>

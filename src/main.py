@@ -3,6 +3,7 @@
 import os
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 import gradio as gr
 from dotenv import load_dotenv
 
@@ -20,14 +21,20 @@ app = FastAPI(
 # Include REST API routers
 app.include_router(api_router)
 
+# Mount client-side WebCodecs renderer studio
+client_dir = os.path.join(os.path.dirname(__file__), "ui", "client_renderer")
+if os.path.exists(client_dir):
+    app.mount("/client", StaticFiles(directory=client_dir, html=True), name="client_renderer")
+
 
 @app.get("/")
 def root_redirect():
     """Root endpoint info."""
     return {
         "message": "Bem-vindo à API do Auto Viral Cuts!",
-        "docs": "/docs",
+        "client": "/client",
         "ui": "/ui",
+        "docs": "/docs",
     }
 
 
@@ -42,7 +49,9 @@ if __name__ == "__main__":
     debug = os.getenv("DEBUG", "True").lower() == "true"
 
     print(f"🚀 Iniciando Auto Viral Cuts em http://{host}:{port}")
-    print(f"📱 Interface Gradio disponível em http://{host}:{port}/ui")
+    print(f"⚡ Studio WebCodecs (Cliente) disponível em http://{host}:{port}/client")
+    print(f"📱 Interface Servidor (Gradio) disponível em http://{host}:{port}/ui")
     print(f"📚 Documentação OpenAPI disponível em http://{host}:{port}/docs")
+
 
     uvicorn.run("src.main:app", host=host, port=port, reload=debug)

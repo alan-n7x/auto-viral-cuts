@@ -46,12 +46,17 @@ auto-viral-cuts/
    - Conversão para formato vertical 9:16 através de múltiplos modos de enquadramento (`center_crop`, `blurred_background`, `fit_black_bars`, `no_crop`).
    - Normalização de áudio AAC estéreo e codecs otimizados para redes sociais.
 
-3. **Interface Gráfica Drag & Drop (Gradio):**
-   - Interface web moderna e intuitiva para uso local imediato.
+3. **Studio de Renderização no Cliente (WebCodecs + Canvas 2D):**
+   - Arquitetura híbrida de ultra-baixo custo: upload apenas da faixa de áudio leve para IA (`/api/v1/generate-manifest`).
+   - Corte 9:16, renderização de legendas estilo Hormozi e exportação MP4 realizadas 100% no navegador do usuário via **WebCodecs** (`VideoEncoder` com aceleração por hardware) e **`mp4-muxer`**.
+   - Disponível diretamente em: **`http://localhost:8000/client`**.
+
+4. **Interface Gráfica Servidor (Gradio):**
+   - Interface web clássica com processamento local via FFmpeg/VAAPI em: **`http://localhost:8000/ui`**.
    - Pré-visualização do primeiro corte gerado e relatório detalhado.
 
-4. **Arquitetura Web / SaaS Pronta para Produção (FastAPI):**
-   - Endpoints REST para integração com frontends modernos e microsserviços.
+5. **Arquitetura Web / SaaS Pronta para Produção (FastAPI):**
+   - Endpoints REST documentados interativamente em: **`http://localhost:8000/docs`**.
 
 ---
 
@@ -83,12 +88,14 @@ cp .env.example .env
 Edite o arquivo `.env` e preencha `GEMINI_API_KEY=sua_chave_aqui`.
 
 ### 3. Executar a Aplicação
-Inicie a aplicação unificada (FastAPI + Gradio):
+Inicie a aplicação unificada (FastAPI + Client Studio + Gradio):
 ```bash
 python3 src/main.py
 ```
-- Acesse a interface web em: **`http://localhost:8000/ui`**
-- Acesse a documentação da API REST em: **`http://localhost:8000/docs`**
+- Acesse o **Studio WebCodecs (Cliente)** em: **`http://localhost:8000/client`**
+- Acesse a **Interface Servidor (Gradio)** em: **`http://localhost:8000/ui`**
+- Acesse a **Documentação da API REST** em: **`http://localhost:8000/docs`**
+
 
 ---
 
