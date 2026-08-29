@@ -138,18 +138,27 @@ btnGenerateManifest.addEventListener("click", async () => {
     );
 
     // Step B: Send audio to /api/v1/generate-manifest
-    updateProgress("Enviando áudio para IA (Gemini 3.6 + Whisper)...", 45);
+    const aiProvider = document.getElementById("aiProviderSelect")
+      ? document.getElementById("aiProviderSelect").value
+      : "groq";
+    const langSelect = document.getElementById("languageModeSelect");
+    const subLang = langSelect ? langSelect.value : "original";
+    const groqKeyInput = document.getElementById("groqApiKeyInput");
+    const groqKey = groqKeyInput ? groqKeyInput.value.trim() : "";
+
+    const providerLabel = aiProvider === "groq" ? "Groq LPU (LLaMA 3.3 70B)" : "Google Gemini 3.6";
+    updateProgress(`Transcrevendo e analisando texto via ${providerLabel}...`, 50);
 
     const formData = new FormData();
     formData.append("file", audioBlob, "extracted_audio.wav");
     formData.append("max_clips", document.getElementById("maxClipsSelect").value);
     formData.append("crop_mode", "center_crop");
+    formData.append("ai_provider", aiProvider);
+    formData.append("subtitle_language", subLang);
+    formData.append("translate_to_pt", subLang === "pt_br" ? "true" : "false");
 
-    const langSelect = document.getElementById("languageModeSelect");
-    if (langSelect && langSelect.value === "pt_br") {
-      formData.append("translate_to_pt", "true");
-    } else {
-      formData.append("translate_to_pt", "false");
+    if (groqKey) {
+      formData.append("groq_api_key", groqKey);
     }
 
     const promptInput = document.getElementById("customPromptInput").value.trim();
@@ -157,11 +166,11 @@ btnGenerateManifest.addEventListener("click", async () => {
       formData.append("custom_prompt", promptInput);
     }
 
-
     const response = await fetch("/api/v1/generate-manifest", {
       method: "POST",
       body: formData,
     });
+
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: "Erro desconhecido" }));

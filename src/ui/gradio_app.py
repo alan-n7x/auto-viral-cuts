@@ -19,12 +19,15 @@ def run_viral_pipeline(
     subtitle_style: str,
     whisper_model: str,
     translate_to_pt: bool,
+    ai_provider: str,
+    subtitle_language: str,
+    groq_api_key_input: str,
     max_clips: int,
     min_duration: int,
     max_duration: int,
     custom_prompt: str,
 ) -> Tuple[str, str, Any]:
-    """Executes the full Gemini analysis and FFmpeg clipping pipeline with subtitles from the Gradio UI."""
+    """Executes the full AI analysis (Groq or Gemini) and FFmpeg clipping pipeline from the Gradio UI."""
     if video_file is None:
         return "⚠️ Por favor, envie ou arraste um arquivo de vídeo válido.", "", None
 
@@ -33,15 +36,23 @@ def run_viral_pipeline(
     if not os.path.exists(video_path):
         return f"❌ Erro: Arquivo de vídeo não encontrado em {video_path}.", "", None
 
-    api_key = api_key_input.strip() or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return (
-            "❌ Chave da API do Gemini não informada. Insira sua chave ou configure o arquivo .env.",
-            "",
-            None,
-        )
-
     try:
+        groq_key = groq_api_key_input.strip() or os.getenv("GROQ_API_KEY")
+        gemini_key = api_key_input.strip() or os.getenv("GEMINI_API_KEY")
+
+        if ai_provider == "groq" and not groq_key:
+            return (
+                "❌ Chave da API do Groq não informada. Insira sua chave ou configure GROQ_API_KEY no arquivo .env.",
+                "",
+                None,
+            )
+        elif ai_provider == "gemini" and not gemini_key:
+            return (
+                "❌ Chave da API do Gemini não informada. Insira sua chave ou configure GEMINI_API_KEY no arquivo .env.",
+                "",
+                None,
+            )
+
         options = ProcessingOptions(
             target_platform=PlatformPreset(target_platform),
             crop_mode=CropMode(crop_mode),
@@ -49,32 +60,30 @@ def run_viral_pipeline(
             burn_subtitles=burn_subtitles,
             subtitle_style=SubtitleStyle(subtitle_style),
             whisper_model=whisper_model,
-            translate_to_pt=translate_to_pt,
+            translate_to_pt=(subtitle_language == "pt_br" or translate_to_pt),
+            ai_provider=AiProvider(ai_provider),
+            subtitle_language=SubtitleLanguage(subtitle_language),
+            groq_api_key=groq_key,
             max_clips=int(max_clips),
             min_duration_seconds=int(min_duration),
             max_duration_seconds=int(max_duration),
             custom_prompt=custom_prompt.strip() if custom_prompt else None,
         )
 
-
-        # 1. Analyze with Gemini
-        analyzer = GeminiAnalyzer(api_key=api_key)
-        analysis_result = analyzer.analyze_video(video_path, options)
-
-        # 2. Process clips with FFmpeg + faster-whisper
-        processor = VideoProcessor()
-        result = processor.process_all_clips(video_path, analysis_result, options)
+        from src.infrastructure.adapters.local_processor_adapter import LocalProcessorAdapter
+        adapter = LocalProcessorAdapter()
+        result = adapter.process_cuts(video_path, options)
 
         if not result.clips:
             return (
                 "⚠️ O vídeo foi analisado, mas nenhum corte foi gerado com sucesso.",
-                f"**Resumo do Vídeo:** {analysis_result.video_summary}",
+                "",
                 None,
             )
 
         # Build markdown summary report
-        md_report = f"### 🎬 Resumo do Vídeo\n> {analysis_result.video_summary}\n\n"
-        md_report += f"**Temas Principais:** {', '.join(analysis_result.key_themes)}\n\n"
+        md_report = f"### 🎬 Resumo do Vídeo\n> {result.video_summary}\n\n"
+        md_report += f"**Temas Principais:** {', '.join(result.key_themes)}\n\n"
         md_report += f"--- \n### ✂️ Cortes Gerados com Sucesso ({len(result.clips)}):\n\n"
 
         file_paths = []
@@ -142,11 +151,29 @@ def create_demo() -> gr.Blocks:
                     interactive=True,
                 )
 
-                api_key_input = gr.Textbox(
-                    label="Google Gemini API Key (Opcional se definido no .env)",
-                    type="password",
-                    placeholder="AIzaSy...",
-                )
+                with gr.Row():
+                    ai_provider = gr.Dropdown(
+                        choices=["groq", "gemini"],
+                        value="groq",
+                        label="⚡ Provedor de IA (Groq LPU vs Gemini)",
+                    )
+                    subtitle_language = gr.Dropdown(
+                        choices=["original", "pt_br", "en"],
+                        value="pt_br",
+                        label="🌐 Idioma das Legendas",
+                    )
+
+                with gr.Row():
+                    groq_api_key_input = gr.Textbox(
+                        label="Groq API Key (Opcional se definido no .env)",
+                        type="password",
+                        placeholder="gsk_...",
+                    )
+                    api_key_input = gr.Textbox(
+                        label="Google Gemini API Key (Opcional se definido no .env)",
+                        type="password",
+                        placeholder="AIzaSy...",
+                    )
 
                 with gr.Row():
                     target_platform = gr.Dropdown(
@@ -189,7 +216,7 @@ def create_demo() -> gr.Blocks:
                 with gr.Row():
                     translate_to_pt = gr.Checkbox(
                         value=False,
-                        label="🇧🇷 Traduzir para Português (PT-BR) [Títulos, Ganchos e Legendas]",
+                        label="🇧🇷 Forçar Tradução para Português (PT-BR)",
                     )
 
                 with gr.Row():
@@ -226,6 +253,9 @@ def create_demo() -> gr.Blocks:
                 subtitle_style,
                 whisper_model,
                 translate_to_pt,
+                ai_provider,
+                subtitle_language,
+                groq_api_key_input,
                 max_clips,
                 min_duration,
                 max_duration,
@@ -233,6 +263,7 @@ def create_demo() -> gr.Blocks:
             ],
             outputs=[status_output, report_output, preview_video],
         )
+
 
 
         gr.Markdown(

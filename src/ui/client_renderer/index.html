@@ -70,10 +70,31 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="languageModeSelect">Idioma dos Cortes & Legendas:</label>
+        <label class="form-label" for="aiProviderSelect">Provedor de Inteligência Artificial:</label>
+        <select id="aiProviderSelect" class="form-select">
+          <option value="groq" selected>⚡ Groq LPU (LLaMA 3.3 70B - Ultra Rápido ~1s)</option>
+          <option value="gemini">✨ Google Gemini (Gemini 3.6 Flash)</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="groqKeyGroup">
+        <label class="form-label" for="groqApiKeyInput">Groq API Key (Opcional se no .env):</label>
+        <input type="password" id="groqApiKeyInput" class="form-input" placeholder="gsk_...">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="audioTrackSelect">Trilha Sonora / Áudio:</label>
+        <select id="audioTrackSelect" class="form-select">
+          <option value="original" selected>🔊 Manter Áudio Original do Vídeo (Vozes e Efeitos)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="languageModeSelect">Idioma das Legendas Dinâmicas:</label>
         <select id="languageModeSelect" class="form-select">
-          <option value="original" selected>🌐 Manter Idioma Original (Áudio e Falas)</option>
-          <option value="pt_br">🇧🇷 Traduzir para Português (PT-BR)</option>
+          <option value="original">🌐 Manter Original (Sem tradução)</option>
+          <option value="pt_br" selected>🇧🇷 Traduzir Legendas para Português (PT-BR)</option>
+          <option value="en">🇺🇸 Traduzir Legendas para Inglês (EN)</option>
         </select>
       </div>
 
@@ -81,6 +102,7 @@
         <label class="form-label" for="customPromptInput">Direcionamento Opcional (Nicho/Tema):</label>
         <input type="text" id="customPromptInput" class="form-input" placeholder="Ex: Foque nos momentos mais polêmicos ou engraçados">
       </div>
+
 
 
       <button id="btnGenerateManifest" class="btn btn-primary" disabled>
