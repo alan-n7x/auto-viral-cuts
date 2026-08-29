@@ -498,6 +498,60 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+// Helper to find supported codec and acceleration configuration
+async function findSupportedEncoderConfig(width, height, bitrate) {
+  const candidateCodecs = [
+    "avc1.42002a", // Baseline Level 4.2 (Maximum compatibility for 1080x1920)
+    "avc1.42001f", // Baseline Level 3.1
+    "avc1.4d002a", // Main Level 4.2
+    "avc1.64002a", // High Level 4.2
+    "avc1.420028", // Baseline Level 4.0
+    "avc1.640028", // High Level 4.0
+    "vp8",
+    "vp09.00.10.08",
+  ];
+
+  // Try "no-preference" first to prevent hardware creation errors on Linux/GPU
+  const accelerationModes = ["no-preference", "prefer-hardware", "prefer-software"];
+
+  for (const hw of accelerationModes) {
+    for (const codec of candidateCodecs) {
+      const testConfig = {
+        codec: codec,
+        width: width,
+        height: height,
+        bitrate: bitrate,
+        framerate: 30,
+        hardwareAcceleration: hw,
+      };
+
+      try {
+        if (typeof VideoEncoder.isConfigSupported === "function") {
+          const support = await VideoEncoder.isConfigSupported(testConfig);
+          if (support && support.supported) {
+            console.log("Configuracao WebCodecs suportada detectada:", support.config || testConfig);
+            return support.config || testConfig;
+          }
+        } else {
+          return testConfig;
+        }
+      } catch (e) {
+        // try next combination
+      }
+    }
+  }
+
+  // Safe universal fallback
+  return {
+    codec: "avc1.42002a",
+    width: width,
+    height: height,
+    bitrate: bitrate,
+    framerate: 30,
+    hardwareAcceleration: "no-preference",
+  };
+}
+
 // 7. WebCodecs VideoEncoder + mp4-muxer GPU Export Pipeline
 btnExport.addEventListener("click", async () => {
   if (!activeCut || !originalFile) return;
@@ -509,7 +563,7 @@ btnExport.addEventListener("click", async () => {
   const is1080p = resolutionSelect.value === "1080x1920";
   const exportW = is1080p ? 1080 : 720;
   const exportH = is1080p ? 1920 : 1280;
-  const bitrate = is1080p ? 6_000_000 : 3_500_000;
+  const bitrate = is1080p ? 5_000_000 : 3_000_000;
 
   exportStatusLabel.innerHTML = `<span>Inicializando WebCodecs VideoEncoder...</span><span>0%</span>`;
   exportProgressFill.style.width = "0%";
@@ -521,11 +575,20 @@ btnExport.addEventListener("click", async () => {
       );
     }
 
+    const encoderConfig = await findSupportedEncoderConfig(exportW, exportH, bitrate);
+    console.log("Iniciando VideoEncoder com:", encoderConfig);
+
+    // Determine muxer codec from encoder codec
+    const isAvc = encoderConfig.codec.startsWith("avc1");
+    const isVp9 = encoderConfig.codec.startsWith("vp09") || encoderConfig.codec.startsWith("vp9");
+    const isVp8 = encoderConfig.codec.startsWith("vp8");
+    const muxerCodec = isAvc ? "avc" : (isVp9 ? "vp9" : (isVp8 ? "vp8" : "avc"));
+
     // Initialize mp4-muxer
     const muxer = new Muxer({
       target: new ArrayBufferTarget(),
       video: {
-        codec: "avc",
+        codec: muxerCodec,
         width: exportW,
         height: exportH,
       },
@@ -533,7 +596,7 @@ btnExport.addEventListener("click", async () => {
     });
 
     let encoderError = null;
-    const encoder = new VideoEncoder({
+    let encoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (err) => {
         console.error("Erro no VideoEncoder:", err);
@@ -541,15 +604,15 @@ btnExport.addEventListener("click", async () => {
       },
     });
 
-    // Configure encoder with hardware acceleration
-    encoder.configure({
-      codec: "avc1.640028", // H.264 High Profile Level 4.0
-      width: exportW,
-      height: exportH,
-      bitrate: bitrate,
-      framerate: 30,
-      hardwareAcceleration: "prefer-hardware",
-    });
+    try {
+      encoder.configure(encoderConfig);
+    } catch (cfgErr) {
+      console.warn("Falha ao configurar encoder preferido, tentando fallback Baseline:", cfgErr);
+      encoderConfig.codec = "avc1.42001f";
+      encoderConfig.hardwareAcceleration = "no-preference";
+      encoder.configure(encoderConfig);
+    }
+
 
     // Create offscreen canvas for rendering export frames
     const offscreen = document.createElement("canvas");
@@ -570,12 +633,15 @@ btnExport.addEventListener("click", async () => {
       const frameTimeSec = startSec + f / fps;
       video.currentTime = frameTimeSec;
 
-      // Wait until frame is decoded by video element
+      // Wait until frame is decoded by video element (with safety timeout)
       await new Promise((resolve) => {
+        let timer = null;
         const onSeeked = () => {
+          if (timer) clearTimeout(timer);
           video.removeEventListener("seeked", onSeeked);
           resolve();
         };
+        timer = setTimeout(onSeeked, 200);
         video.addEventListener("seeked", onSeeked, { once: true });
       });
 
@@ -628,10 +694,18 @@ btnExport.addEventListener("click", async () => {
     }, 10000);
   } catch (err) {
     console.error("Erro na exportação WebCodecs:", err);
-    exportStatusLabel.innerHTML = `<span style="color: var(--accent-rose)">Falha na renderização: ${err.message}</span>`;
+    exportStatusLabel.innerHTML = `
+      <div style="color: var(--accent-rose); margin-bottom: 0.35rem; font-weight: 600;">
+        Falha na renderização local: ${err.message}
+      </div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">
+        O seu navegador/GPU não permitiu a codificação direta deste perfil. Você pode renderizar o corte completo com legendas via FFmpeg acessando o <a href="/ui" style="color: var(--accent-cyan); text-decoration: underline;">Modo Servidor (Gradio)</a>.
+      </div>
+    `;
   } finally {
     btnExport.disabled = false;
   }
+
 });
 
 // Run capabilities check & initialize dropzone
