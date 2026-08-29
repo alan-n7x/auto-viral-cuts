@@ -307,34 +307,55 @@ class VideoProcessor:
         has_subtitles = False
 
         if options.burn_subtitles:
-            # If all_words not provided in batch, transcribe on demand
-            if all_words is None and self.transcriber.is_available():
+            # If translation is requested and translated cues exist, burn translated PT-BR subtitles
+            if options.translate_to_pt and clip_meta.subtitles_pt:
+                ass_filename = f"clip_{index:02d}_{safe_title}.ass"
+                ass_path = os.path.abspath(os.path.join(self.output_dir, ass_filename))
                 try:
-                    all_words = self.transcriber.transcribe(
-                        video_path, model_size=options.whisper_model
+                    self.subtitle_generator.generate_ass_from_cues(
+                        clip_meta.subtitles_pt,
+                        ass_path,
+                        style=options.subtitle_style,
+                        offset_start_sec=start_sec,
+                    )
+                    subtitle_file = ass_path
+                    has_subtitles = True
+                    print(
+                        f"[{time.strftime('%H:%M:%S')}] Legendas traduzidas (PT-BR) geradas para corte {index} "
+                        f"({len(clip_meta.subtitles_pt)} frases, estilo '{options.subtitle_style.value}')."
                     )
                 except Exception as e:
-                    print(f"Aviso: Erro na transcrição Whisper ({e}). Continuando sem legendas.")
-
-            if all_words:
-                clip_words = self.transcriber.get_words_for_interval(
-                    all_words, start_sec, end_sec
-                )
-                if clip_words:
-                    ass_filename = f"clip_{index:02d}_{safe_title}.ass"
-                    ass_path = os.path.abspath(os.path.join(self.output_dir, ass_filename))
+                    print(f"Aviso: Falha ao gerar arquivo de legenda traduzida .ass ({e}).")
+            else:
+                # If all_words not provided in batch, transcribe on demand for original language
+                if all_words is None and self.transcriber.is_available():
                     try:
-                        self.subtitle_generator.generate_ass(
-                            clip_words, ass_path, style=options.subtitle_style
-                        )
-                        subtitle_file = ass_path
-                        has_subtitles = True
-                        print(
-                            f"[{time.strftime('%H:%M:%S')}] Legendas geradas para corte {index} "
-                            f"({len(clip_words)} palavras, estilo '{options.subtitle_style.value}')."
+                        all_words = self.transcriber.transcribe(
+                            video_path, model_size=options.whisper_model
                         )
                     except Exception as e:
-                        print(f"Aviso: Falha ao gerar arquivo de legenda .ass ({e}).")
+                        print(f"Aviso: Erro na transcrição Whisper ({e}). Continuando sem legendas.")
+
+                if all_words:
+                    clip_words = self.transcriber.get_words_for_interval(
+                        all_words, start_sec, end_sec
+                    )
+                    if clip_words:
+                        ass_filename = f"clip_{index:02d}_{safe_title}.ass"
+                        ass_path = os.path.abspath(os.path.join(self.output_dir, ass_filename))
+                        try:
+                            self.subtitle_generator.generate_ass(
+                                clip_words, ass_path, style=options.subtitle_style
+                            )
+                            subtitle_file = ass_path
+                            has_subtitles = True
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}] Legendas originais geradas para corte {index} "
+                                f"({len(clip_words)} palavras, estilo '{options.subtitle_style.value}')."
+                            )
+                        except Exception as e:
+                            print(f"Aviso: Falha ao gerar arquivo de legenda .ass ({e}).")
+
 
         # 2. Resolve target hardware acceleration
         env_hw = os.getenv("HW_ACCEL", "auto").lower()

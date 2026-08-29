@@ -80,13 +80,16 @@ class LocalProcessorAdapter(VideoProcessorPort):
             manifests.append(
                 ClientCutManifest(
                     cut_id=f"cut_{idx + 1}_{uuid.uuid4().hex[:6]}",
-                    title=clip.title,
+                    title=clip.title_pt if (options.translate_to_pt and clip.title_pt) else clip.title,
+                    title_pt=clip.title_pt,
                     start_sec=round(start_sec, 2),
                     end_sec=round(end_sec, 2),
                     viral_score=clip.virality_score,
-                    hook=clip.hook_summary or clip.title,
+                    hook=clip.hook_pt if (options.translate_to_pt and clip.hook_pt) else (clip.hook_summary or clip.title),
+                    hook_pt=clip.hook_pt,
                     crop_mode=options.crop_mode.value if hasattr(options.crop_mode, "value") else str(options.crop_mode),
                     words=clip_words,
+                    subtitles_pt=clip.subtitles_pt,
                 )
             )
 

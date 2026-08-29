@@ -3,8 +3,9 @@
 import math
 import os
 from typing import List, Optional
-from src.core.schemas import SubtitleStyle
+from src.core.schemas import SubtitleCue, SubtitleStyle
 from src.core.transcriber import WordTimestamp
+
 
 
 class SubtitleGenerator:
@@ -146,3 +147,56 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f.write(full_content)
 
         return output_ass_path
+
+    def generate_ass_from_cues(
+        self,
+        cues: List[SubtitleCue],
+        output_ass_path: str,
+        style: SubtitleStyle = SubtitleStyle.HORMOZI,
+        offset_start_sec: float = 0.0,
+    ) -> str:
+        """Generates an .ass subtitle file from phrase-level translated SubtitleCue items."""
+        cfg = self.get_style_config(style)
+
+        header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ViralStyle,{cfg['font_name']},{cfg['font_size']},{cfg['primary_color']},&H000000FF,{cfg['outline_color']},{cfg['back_color']},{cfg['bold']},0,0,0,100,100,0,0,1,{cfg['outline_width']},{cfg['shadow_offset']},2,60,60,420,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        events = []
+        for cue in cues:
+            t_start = max(0.0, cue.start - offset_start_sec) if cue.start >= offset_start_sec else cue.start
+            t_end = max(t_start + 0.1, cue.end - offset_start_sec) if cue.end >= offset_start_sec else cue.end
+
+            start_str = self.format_ass_time(t_start)
+            end_str = self.format_ass_time(t_end)
+            text_disp = cue.text.upper() if cfg["uppercase"] else cue.text
+
+            words = text_disp.split()
+            if len(words) > 1 and cfg.get("highlight_color"):
+                styled_text = (
+                    f"{{\\c{cfg['highlight_color']}&}}{words[0]}{{\\c{cfg['primary_color']}&}} "
+                    + " ".join(words[1:])
+                )
+            else:
+                styled_text = text_disp
+
+            events.append(
+                f"Dialogue: 0,{start_str},{end_str},ViralStyle,,0,0,0,,{styled_text}"
+            )
+
+        full_content = header + "\n".join(events) + "\n"
+        os.makedirs(os.path.dirname(os.path.abspath(output_ass_path)), exist_ok=True)
+        with open(output_ass_path, "w", encoding="utf-8") as f:
+            f.write(full_content)
+
+        return output_ass_path
+
