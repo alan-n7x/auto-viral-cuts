@@ -54,7 +54,8 @@ class GeminiAnalyzer:
                 raise RuntimeError(
                     f"Falha no processamento do vídeo no Gemini. Estado atual: {file_info.state.name}"
                 )
-            print(f"[{time.strftime('%H:%M:%S')}] Arquivo ativo e pronto para análise.")
+            mime_type = file_info.mime_type or video_file.mime_type or "video/mp4"
+            input_type = "audio" if mime_type.startswith("audio/") else "video"
 
             prompt = self._build_prompt(options)
 
@@ -75,9 +76,9 @@ class GeminiAnalyzer:
                             model=current_model_name,
                             input=[
                                 {
-                                    "type": "video",
+                                    "type": input_type,
                                     "uri": video_file.uri,
-                                    "mime_type": video_file.mime_type,
+                                    "mime_type": mime_type,
                                 },
                                 {"type": "text", "text": prompt},
                             ],
@@ -203,7 +204,7 @@ class GeminiAnalyzer:
 
         prompt = f"""
 Você é um especialista mundial em edição de vídeo viral e retenção de audiência para redes sociais.
-Analise o vídeo fornecido e identifique exatamente até {options.max_clips} trechos com maior potencial de viralização.
+Analise o conteúdo (áudio ou vídeo) fornecido e identifique exatamente até {options.max_clips} trechos com maior potencial de viralização.
 
 Diretrizes de Extração:
 1. Duração de cada corte: entre {options.min_duration_seconds} e {options.max_duration_seconds} segundos.

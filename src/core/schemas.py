@@ -259,3 +259,46 @@ class HealthStatus(BaseModel):
     gpu_detected: Optional[str] = None
     whisper_available: bool = False
     version: str
+
+
+class WordTimestamp(BaseModel):
+    """Word timestamp representation in milliseconds for client-side rendering."""
+
+    word: str = Field(..., description="Texto da palavra.")
+    start_ms: int = Field(
+        ...,
+        description="Timestamp de início em milissegundos relativos ao início do corte.",
+    )
+    end_ms: int = Field(
+        ...,
+        description="Timestamp de término em milissegundos relativos ao início do corte.",
+    )
+
+
+class ClientCutManifest(BaseModel):
+    """Structured cut manifest for client-side WebCodecs / Canvas video rendering."""
+
+    cut_id: str = Field(..., description="Identificador único do corte.")
+    title: str = Field(..., description="Título chamativo do corte.")
+    start_sec: float = Field(
+        ..., description="Timestamp de início em segundos no vídeo original."
+    )
+    end_sec: float = Field(
+        ..., description="Timestamp de término em segundos no vídeo original."
+    )
+    viral_score: int = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Pontuação estimada de potencial de viralização (0 a 100).",
+    )
+    hook: str = Field(..., description="Gancho inicial ou resumo de atenção.")
+    crop_mode: str = Field(
+        default="center_crop",
+        description="Modo de enquadramento (ex: center_crop, fit_black_bars).",
+    )
+    words: List[WordTimestamp] = Field(
+        default_factory=list,
+        description="Lista de palavras com timestamps para renderização de legendas.",
+    )
+
