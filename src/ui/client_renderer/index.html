@@ -70,9 +70,18 @@
       </div>
 
       <div class="form-group">
+        <label class="form-label" for="languageModeSelect">Idioma dos Cortes & Legendas:</label>
+        <select id="languageModeSelect" class="form-select">
+          <option value="original" selected>🌐 Manter Idioma Original (Áudio e Falas)</option>
+          <option value="pt_br">🇧🇷 Traduzir para Português (PT-BR)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label class="form-label" for="customPromptInput">Direcionamento Opcional (Nicho/Tema):</label>
         <input type="text" id="customPromptInput" class="form-input" placeholder="Ex: Foque nos momentos mais polêmicos ou engraçados">
       </div>
+
 
       <button id="btnGenerateManifest" class="btn btn-primary" disabled>
         <span>🤖</span> Extrair Áudio & Gerar Cortes IA

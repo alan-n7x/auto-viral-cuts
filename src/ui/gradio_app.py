@@ -18,6 +18,7 @@ def run_viral_pipeline(
     burn_subtitles: bool,
     subtitle_style: str,
     whisper_model: str,
+    translate_to_pt: bool,
     max_clips: int,
     min_duration: int,
     max_duration: int,
@@ -48,11 +49,13 @@ def run_viral_pipeline(
             burn_subtitles=burn_subtitles,
             subtitle_style=SubtitleStyle(subtitle_style),
             whisper_model=whisper_model,
+            translate_to_pt=translate_to_pt,
             max_clips=int(max_clips),
             min_duration_seconds=int(min_duration),
             max_duration_seconds=int(max_duration),
             custom_prompt=custom_prompt.strip() if custom_prompt else None,
         )
+
 
         # 1. Analyze with Gemini
         analyzer = GeminiAnalyzer(api_key=api_key)
@@ -184,6 +187,12 @@ def create_demo() -> gr.Blocks:
                     )
 
                 with gr.Row():
+                    translate_to_pt = gr.Checkbox(
+                        value=False,
+                        label="🇧🇷 Traduzir para Português (PT-BR) [Títulos, Ganchos e Legendas]",
+                    )
+
+                with gr.Row():
                     min_duration = gr.Slider(
                         minimum=10, maximum=60, value=15, step=5, label="Duração Mínima (s)"
                     )
@@ -216,6 +225,7 @@ def create_demo() -> gr.Blocks:
                 burn_subtitles,
                 subtitle_style,
                 whisper_model,
+                translate_to_pt,
                 max_clips,
                 min_duration,
                 max_duration,
@@ -223,6 +233,7 @@ def create_demo() -> gr.Blocks:
             ],
             outputs=[status_output, report_output, preview_video],
         )
+
 
         gr.Markdown(
             """

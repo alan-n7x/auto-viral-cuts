@@ -4,7 +4,16 @@ import uuid
 from typing import List, Optional
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
 from src.api.dependencies import get_process_video_use_case, get_task_manager
 from src.application.task_manager import TaskManager
@@ -80,18 +89,20 @@ def health_check() -> HealthStatus:
 async def process_video_async_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    custom_prompt: Optional[str] = None,
-    max_clips: int = 5,
-    min_duration_seconds: int = 15,
-    max_duration_seconds: int = 60,
-    crop_mode: CropMode = CropMode.CENTER_CROP,
-    hw_accel: HwAccelMode = HwAccelMode.AUTO,
-    burn_subtitles: bool = True,
-    subtitle_style: SubtitleStyle = SubtitleStyle.HORMOZI,
-    target_platform: PlatformPreset = PlatformPreset.GENERAL,
+    custom_prompt: Optional[str] = Form(None),
+    max_clips: int = Form(5),
+    min_duration_seconds: int = Form(15),
+    max_duration_seconds: int = Form(60),
+    crop_mode: CropMode = Form(CropMode.CENTER_CROP),
+    hw_accel: HwAccelMode = Form(HwAccelMode.AUTO),
+    burn_subtitles: bool = Form(True),
+    subtitle_style: SubtitleStyle = Form(SubtitleStyle.HORMOZI),
+    target_platform: PlatformPreset = Form(PlatformPreset.GENERAL),
+    translate_to_pt: bool = Form(False),
     use_case: ProcessVideoUseCase = Depends(get_process_video_use_case),
     manager: TaskManager = Depends(get_task_manager),
 ) -> AsyncTaskResponse:
+
     """Receives a video file, streams it asynchronously to disk in 64KB chunks,
 
     and enqueues background processing, returning HTTP 202 Accepted immediately.
@@ -120,8 +131,10 @@ async def process_video_async_endpoint(
         burn_subtitles=burn_subtitles,
         subtitle_style=subtitle_style,
         target_platform=target_platform,
+        translate_to_pt=translate_to_pt,
         custom_prompt=custom_prompt,
     )
+
 
     # 4. Dispatch Use Case execution in background
     background_tasks.add_task(use_case.execute, task_id, dest_path, options)
@@ -181,14 +194,16 @@ async def analyze_video_endpoint(
 @router.post("/generate-manifest", response_model=List[ClientCutManifest])
 async def generate_manifest_endpoint(
     file: UploadFile = File(...),
-    custom_prompt: Optional[str] = None,
-    max_clips: int = 5,
-    min_duration_seconds: int = 15,
-    max_duration_seconds: int = 60,
-    target_platform: PlatformPreset = PlatformPreset.GENERAL,
-    crop_mode: str = "center_crop",
-    whisper_model: str = "base",
+    custom_prompt: Optional[str] = Form(None),
+    max_clips: int = Form(5),
+    min_duration_seconds: int = Form(15),
+    max_duration_seconds: int = Form(60),
+    target_platform: PlatformPreset = Form(PlatformPreset.GENERAL),
+    crop_mode: str = Form("center_crop"),
+    whisper_model: str = Form("base"),
+    translate_to_pt: bool = Form(False),
 ) -> List[ClientCutManifest]:
+
     """Receives an audio or video file, runs Gemini intelligence + Whisper transcription,
 
     and returns a structured client cut manifest for browser-side WebCodecs rendering.
@@ -216,6 +231,7 @@ async def generate_manifest_endpoint(
             min_duration_seconds=min_duration_seconds,
             max_duration_seconds=max_duration_seconds,
             target_platform=target_platform,
+            translate_to_pt=translate_to_pt,
             custom_prompt=custom_prompt,
         )
         analysis = analyzer.analyze_video(temp_file_path, options)
@@ -248,17 +264,21 @@ async def generate_manifest_endpoint(
             manifests.append(
                 ClientCutManifest(
                     cut_id=f"cut_{idx + 1}_{uuid.uuid4().hex[:6]}",
-                    title=clip.title,
+                    title=clip.title_pt if (translate_to_pt and clip.title_pt) else clip.title,
+                    title_pt=clip.title_pt,
                     start_sec=round(start_sec, 2),
                     end_sec=round(end_sec, 2),
                     viral_score=clip.virality_score,
-                    hook=clip.hook_summary or clip.title,
+                    hook=clip.hook_pt if (translate_to_pt and clip.hook_pt) else (clip.hook_summary or clip.title),
+                    hook_pt=clip.hook_pt,
                     crop_mode=crop_mode,
                     words=clip_words,
+                    subtitles_pt=clip.subtitles_pt,
                 )
             )
 
         return manifests
+
 
     except Exception as e:
         raise HTTPException(

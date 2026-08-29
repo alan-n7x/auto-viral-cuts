@@ -145,10 +145,18 @@ btnGenerateManifest.addEventListener("click", async () => {
     formData.append("max_clips", document.getElementById("maxClipsSelect").value);
     formData.append("crop_mode", "center_crop");
 
+    const langSelect = document.getElementById("languageModeSelect");
+    if (langSelect && langSelect.value === "pt_br") {
+      formData.append("translate_to_pt", "true");
+    } else {
+      formData.append("translate_to_pt", "false");
+    }
+
     const promptInput = document.getElementById("customPromptInput").value.trim();
     if (promptInput) {
       formData.append("custom_prompt", promptInput);
     }
+
 
     const response = await fetch("/api/v1/generate-manifest", {
       method: "POST",
@@ -217,15 +225,46 @@ function renderCutsList(manifests) {
   });
 }
 
+function convertCuesToPhrases(cues, cutStartSec) {
+  if (!cues || cues.length === 0) return [];
+  return cues.map((cue) => {
+    const start_ms = Math.max(0, Math.round((cue.start - cutStartSec) * 1000));
+    const end_ms = Math.max(start_ms + 100, Math.round((cue.end - cutStartSec) * 1000));
+    const rawWords = (cue.text || "").trim().split(/\s+/).filter(Boolean);
+    const duration = end_ms - start_ms;
+    const wordDur = duration / (rawWords.length || 1);
+
+    const words = rawWords.map((w, idx) => ({
+      word: w,
+      start_ms: Math.round(start_ms + idx * wordDur),
+      end_ms: Math.round(start_ms + (idx + 1) * wordDur),
+    }));
+
+    return {
+      start_ms,
+      end_ms,
+      words,
+    };
+  });
+}
+
 function selectCut(cut) {
   activeCut = cut;
   btnExport.disabled = false;
-  document.getElementById("statCutTitle").textContent = cut.title;
+  document.getElementById("statCutTitle").textContent = cut.title_pt || cut.title;
   document.getElementById("statCutDuration").textContent = `${(cut.end_sec - cut.start_sec).toFixed(1)}s`;
-  document.getElementById("statCutWords").textContent = cut.words ? cut.words.length : 0;
+  
+  const wordsCount = cut.subtitles_pt && cut.subtitles_pt.length > 0 
+    ? cut.subtitles_pt.reduce((acc, c) => acc + (c.text ? c.text.split(/\s+/).length : 0), 0)
+    : (cut.words ? cut.words.length : 0);
+  document.getElementById("statCutWords").textContent = wordsCount;
 
-  // Pre-group words into short phrases (2-3 words) for Hormozi viral pacing
-  groupedPhrases = groupWordsIntoPhrases(cut.words || []);
+  // Use translated cues if available, otherwise original words
+  if (cut.subtitles_pt && cut.subtitles_pt.length > 0) {
+    groupedPhrases = convertCuesToPhrases(cut.subtitles_pt, cut.start_sec);
+  } else {
+    groupedPhrases = groupWordsIntoPhrases(cut.words || []);
+  }
 
   // Seek video to start of cut
   video.currentTime = cut.start_sec;
@@ -238,6 +277,7 @@ function selectCut(cut) {
  * Groups words into small, punchy phrases (2-4 words) for TikTok/Reels captions.
  */
 function groupWordsIntoPhrases(words) {
+
   if (!words || words.length === 0) return [];
   const phrases = [];
   let currentGroup = [];
