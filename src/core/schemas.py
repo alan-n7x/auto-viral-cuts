@@ -302,3 +302,36 @@ class ClientCutManifest(BaseModel):
         description="Lista de palavras com timestamps para renderização de legendas.",
     )
 
+
+class TaskState(str, Enum):
+    """Execution state for background video processing tasks."""
+
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class AsyncTaskResponse(BaseModel):
+    """Immediate response for asynchronous background job submission (202 Accepted)."""
+
+    task_id: str = Field(..., description="ID único para rastreamento da tarefa.")
+    status: TaskState = Field(default=TaskState.QUEUED, description="Estado inicial da tarefa.")
+    message: str = Field(..., description="Mensagem de confirmação de enfileiramento.")
+    file_name: str = Field(..., description="Nome do arquivo enviado.")
+    created_at: str = Field(..., description="Timestamp de criação ISO 8601.")
+
+
+class TaskStatusResponse(BaseModel):
+    """Detailed status response for background job polling."""
+
+    task_id: str = Field(..., description="Identificador da tarefa.")
+    status: TaskState = Field(..., description="Estado atual da execução.")
+    file_name: str = Field(..., description="Nome do arquivo em processamento.")
+    created_at: str = Field(..., description="Timestamp de criação ISO 8601.")
+    updated_at: str = Field(..., description="Timestamp da última atualização ISO 8601.")
+    progress: int = Field(default=0, ge=0, le=100, description="Progresso estimado da tarefa (0 a 100).")
+    result: Optional[ProcessingResult] = Field(default=None, description="Resultado do processamento com a lista de cortes.")
+    error: Optional[str] = Field(default=None, description="Mensagem de erro caso o status seja 'failed'.")
+
+

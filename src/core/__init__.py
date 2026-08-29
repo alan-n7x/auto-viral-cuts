@@ -1,6 +1,7 @@
 """Core module for Auto Viral Cuts."""
 
 from src.core.schemas import (
+    AsyncTaskResponse,
     ClientCutManifest,
     ClipMetadata,
     CropMode,
@@ -9,11 +10,14 @@ from src.core.schemas import (
     ProcessingOptions,
     ProcessingResult,
     SubtitleStyle,
+    TaskState,
+    TaskStatusResponse,
     ViralAnalysisResponse,
     WordTimestamp,
 )
 
 __all__ = [
+    "AsyncTaskResponse",
     "ClientCutManifest",
     "ClipMetadata",
     "CropMode",
@@ -22,7 +26,10 @@ __all__ = [
     "ProcessingOptions",
     "ProcessingResult",
     "SubtitleStyle",
+    "TaskState",
+    "TaskStatusResponse",
     "ViralAnalysisResponse",
     "WordTimestamp",
 ]
+
 
