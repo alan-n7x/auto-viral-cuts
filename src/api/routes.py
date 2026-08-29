@@ -39,8 +39,9 @@ from src.core.schemas import (
     WordTimestamp,
 )
 
-from src.core.transcriber import AudioTranscriber
+from src.core.transcriber import AudioTranscriber, WordTimestamp as TranscriberWord
 from src.core.video_processor import VideoProcessor
+
 
 router = APIRouter(prefix="/api/v1", tags=["Auto Viral Cuts API"])
 
@@ -235,8 +236,9 @@ async def generate_manifest_endpoint(
         await save_upload_file_stream(file, temp_file_path)
 
         # 1. Speech-to-text transcription (Groq Whisper cloud or local faster-whisper)
-        all_words: List[WordTimestamp] = []
+        all_words: List[TranscriberWord] = []
         if ai_provider == AiProvider.GROQ and (groq_api_key or os.getenv("GROQ_API_KEY")):
+
             try:
                 groq_inst = GroqAnalyzer(api_key=groq_api_key)
                 all_words = groq_inst.transcribe_audio_fast(temp_file_path)

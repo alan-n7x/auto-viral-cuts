@@ -16,8 +16,9 @@ from src.core.schemas import (
     SubtitleCue,
     SubtitleLanguage,
     ViralAnalysisResponse,
-    WordTimestamp,
 )
+from src.core.transcriber import WordTimestamp as TranscriberWord
+
 
 
 class GroqAnalyzer:
@@ -227,7 +228,8 @@ TRANSCRIÇÃO COM TIMESTAMPS:
                     pass
             return audio_path
 
-    def transcribe_audio_fast(self, audio_path: str) -> List[WordTimestamp]:
+    def transcribe_audio_fast(self, audio_path: str) -> List[TranscriberWord]:
+
         """Transcribes audio in seconds using whisper-large-v3 on Groq Cloud."""
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Arquivo de áudio não encontrado: {audio_path}")
@@ -249,7 +251,7 @@ TRANSCRIÇÃO COM TIMESTAMPS:
                     timestamp_granularities=["word"],
                 )
 
-            words_list: List[WordTimestamp] = []
+            words_list: List[TranscriberWord] = []
             raw_words = getattr(transcription, "words", None)
             if raw_words:
                 for item in raw_words:
@@ -257,12 +259,13 @@ TRANSCRIÇÃO COM TIMESTAMPS:
                     w_start = item.get("start") if isinstance(item, dict) else getattr(item, "start", 0.0)
                     w_end = item.get("end") if isinstance(item, dict) else getattr(item, "end", 0.0)
                     words_list.append(
-                        WordTimestamp(
+                        TranscriberWord(
                             word=w_text.strip(),
                             start=float(w_start),
                             end=float(w_end),
                         )
                     )
+
 
             print(
                 f"[{time.strftime('%H:%M:%S')}] Groq Whisper concluiu: {len(words_list)} palavras detectadas!"

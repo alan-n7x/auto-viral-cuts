@@ -230,3 +230,31 @@ def test_groq_audio_compression(tmp_path):
     if compressed != sample_wav and os.path.exists(compressed):
         os.remove(compressed)
 
+
+def test_groq_transcribe_audio_fast_mock(tmp_path):
+    """Validates that transcribe_audio_fast creates TranscriberWord objects with start/end in seconds."""
+    analyzer = GroqAnalyzer(api_key="gsk_dummy")
+
+    fake_audio = str(tmp_path / "test.mp3")
+    with open(fake_audio, "wb") as f:
+        f.write(b"fake audio data")
+
+    mock_raw_transcription = MagicMock()
+    mock_raw_transcription.words = [
+        {"word": "Yo,", "start": 0.0, "end": 5.46},
+        {"word": "welcome", "start": 5.5, "end": 6.2},
+    ]
+    mock_client = MagicMock()
+    mock_client.audio.transcriptions.create.return_value = mock_raw_transcription
+    analyzer._client = mock_client
+
+    words = analyzer.transcribe_audio_fast(fake_audio)
+    assert len(words) == 2
+    assert words[0].word == "Yo,"
+    assert words[0].start == 0.0
+    assert words[0].end == 5.46
+    assert words[1].word == "welcome"
+    assert words[1].start == 5.5
+    assert words[1].end == 6.2
+
+
