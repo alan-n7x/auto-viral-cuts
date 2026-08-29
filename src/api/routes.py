@@ -19,7 +19,9 @@ from src.api.dependencies import get_process_video_use_case, get_task_manager
 from src.application.task_manager import TaskManager
 from src.application.use_cases.process_video_use_case import ProcessVideoUseCase
 from src.core.gemini_analyzer import GeminiAnalyzer
+from src.core.groq_analyzer import GroqAnalyzer
 from src.core.schemas import (
+    AiProvider,
     AsyncTaskResponse,
     ClientCutManifest,
     CropMode,
@@ -28,12 +30,15 @@ from src.core.schemas import (
     PlatformPreset,
     ProcessingOptions,
     ProcessingResult,
+    SubtitleCue,
+    SubtitleLanguage,
     SubtitleStyle,
     TaskState,
     TaskStatusResponse,
     ViralAnalysisResponse,
     WordTimestamp,
 )
+
 from src.core.transcriber import AudioTranscriber
 from src.core.video_processor import VideoProcessor
 
@@ -99,6 +104,9 @@ async def process_video_async_endpoint(
     subtitle_style: SubtitleStyle = Form(SubtitleStyle.HORMOZI),
     target_platform: PlatformPreset = Form(PlatformPreset.GENERAL),
     translate_to_pt: bool = Form(False),
+    ai_provider: AiProvider = Form(AiProvider.GROQ),
+    subtitle_language: SubtitleLanguage = Form(SubtitleLanguage.ORIGINAL),
+    groq_api_key: Optional[str] = Form(None),
     use_case: ProcessVideoUseCase = Depends(get_process_video_use_case),
     manager: TaskManager = Depends(get_task_manager),
 ) -> AsyncTaskResponse:
@@ -131,9 +139,13 @@ async def process_video_async_endpoint(
         burn_subtitles=burn_subtitles,
         subtitle_style=subtitle_style,
         target_platform=target_platform,
-        translate_to_pt=translate_to_pt,
+        translate_to_pt=(subtitle_language == SubtitleLanguage.PT_BR or translate_to_pt),
+        ai_provider=ai_provider,
+        subtitle_language=subtitle_language,
+        groq_api_key=groq_api_key,
         custom_prompt=custom_prompt,
     )
+
 
 
     # 4. Dispatch Use Case execution in background
@@ -202,11 +214,14 @@ async def generate_manifest_endpoint(
     crop_mode: str = Form("center_crop"),
     whisper_model: str = Form("base"),
     translate_to_pt: bool = Form(False),
+    ai_provider: AiProvider = Form(AiProvider.GROQ),
+    subtitle_language: SubtitleLanguage = Form(SubtitleLanguage.ORIGINAL),
+    groq_api_key: Optional[str] = Form(None),
 ) -> List[ClientCutManifest]:
 
-    """Receives an audio or video file, runs Gemini intelligence + Whisper transcription,
+    """Receives an audio or video file, runs speech transcription, formats text with timestamps,
 
-    and returns a structured client cut manifest for browser-side WebCodecs rendering.
+    and queries Groq LLaMA 3.3 70B or Gemini to return a structured client cut manifest.
     """
     ext = os.path.splitext(file.filename or "media.wav")[1].lower()
     if not ext:
@@ -217,26 +232,54 @@ async def generate_manifest_endpoint(
     try:
         await save_upload_file_stream(file, temp_file_path)
 
-        # 1. Transcribe audio with word-level timestamps using faster-whisper
-        if not AudioTranscriber.is_available():
-            raise RuntimeError("faster-whisper não está disponível no servidor.")
+        # 1. Speech-to-text transcription (Groq Whisper cloud or local faster-whisper)
+        all_words: List[WordTimestamp] = []
+        if ai_provider == AiProvider.GROQ and (groq_api_key or os.getenv("GROQ_API_KEY")):
+            try:
+                groq_inst = GroqAnalyzer(api_key=groq_api_key)
+                all_words = groq_inst.transcribe_audio_fast(temp_file_path)
+            except Exception as e:
+                print(f"Aviso: Transcrição via Groq Cloud falhou ({e}), usando faster-whisper local...")
 
-        transcriber = AudioTranscriber()
-        all_words = transcriber.transcribe(temp_file_path, model_size=whisper_model)
+        if not all_words:
+            if not AudioTranscriber.is_available():
+                raise RuntimeError("faster-whisper não está disponível no servidor.")
+            transcriber = AudioTranscriber()
+            all_words = transcriber.transcribe(temp_file_path, model_size=whisper_model)
 
-        # 2. Analyze video/audio with Gemini to extract viral clips
-        analyzer = GeminiAnalyzer()
+        formatted_transcript = AudioTranscriber.format_transcript_with_timestamps(all_words)
+
+        # 2. Processing configuration
+        should_translate = (
+            subtitle_language == SubtitleLanguage.PT_BR
+            or translate_to_pt
+        )
         options = ProcessingOptions(
             max_clips=max_clips,
             min_duration_seconds=min_duration_seconds,
             max_duration_seconds=max_duration_seconds,
             target_platform=target_platform,
-            translate_to_pt=translate_to_pt,
+            translate_to_pt=should_translate,
+            ai_provider=ai_provider,
+            subtitle_language=subtitle_language,
+            groq_api_key=groq_api_key,
             custom_prompt=custom_prompt,
         )
-        analysis = analyzer.analyze_video(temp_file_path, options)
 
-        # 3. Map clips to word timestamps
+        # 3. Analyze formatted transcript via selected LLM (Groq LPU or Gemini)
+        if ai_provider == AiProvider.GROQ and (groq_api_key or os.getenv("GROQ_API_KEY")):
+            groq_inst = GroqAnalyzer(api_key=groq_api_key)
+            if formatted_transcript:
+                analysis = groq_inst.analyze_transcript(formatted_transcript, options)
+            else:
+                analyzer = GeminiAnalyzer()
+                analysis = analyzer.analyze_video(temp_file_path, options)
+        else:
+            analyzer = GeminiAnalyzer()
+            analysis = analyzer.analyze_video(temp_file_path, options)
+
+
+        # 4. Map clips to word timestamps
         vp = VideoProcessor()
         manifests: List[ClientCutManifest] = []
 
@@ -264,20 +307,22 @@ async def generate_manifest_endpoint(
             manifests.append(
                 ClientCutManifest(
                     cut_id=f"cut_{idx + 1}_{uuid.uuid4().hex[:6]}",
-                    title=clip.title_pt if (translate_to_pt and clip.title_pt) else clip.title,
+                    title=clip.title_pt if (should_translate and clip.title_pt) else clip.title,
                     title_pt=clip.title_pt,
                     start_sec=round(start_sec, 2),
                     end_sec=round(end_sec, 2),
                     viral_score=clip.virality_score,
-                    hook=clip.hook_pt if (translate_to_pt and clip.hook_pt) else (clip.hook_summary or clip.title),
+                    hook=clip.hook_pt if (should_translate and clip.hook_pt) else (clip.hook_summary or clip.title),
                     hook_pt=clip.hook_pt,
                     crop_mode=crop_mode,
                     words=clip_words,
                     subtitles_pt=clip.subtitles_pt,
+                    subtitle_language=subtitle_language.value,
                 )
             )
 
         return manifests
+
 
 
     except Exception as e:
