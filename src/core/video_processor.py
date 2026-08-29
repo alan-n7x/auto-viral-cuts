@@ -160,11 +160,10 @@ class VideoProcessor:
         is_vaapi: bool = False,
         subtitle_file: Optional[str] = None,
     ) -> str:
-        """Constructs FFmpeg filtergraph string for 9:16 vertical conversion and subtitle overlay."""
-        # Target vertical resolution: 1080x1920
+        """Constructs FFmpeg filtergraph string for 9:16 vertical conversion (1080x1920) and subtitle overlay."""
+        # Standardized target vertical resolution: 1080x1920 (single-pass downscaling from 4K/1080p)
         if crop_mode == CropMode.CENTER_CROP:
             vf = (
-                r"scale=iw:ih,"
                 r"crop='if(gt(iw/ih\,9/16)\,ih*9/16\,iw)':'if(gt(iw/ih\,9/16)\,ih\,iw*16/9)',"
                 r"scale=1080:1920:flags=lanczos"
             )
@@ -196,9 +195,10 @@ class VideoProcessor:
             vf += f",subtitles='{escaped_sub}'"
 
         if is_vaapi:
-            vf += ",format=nv12,hwupload"
+            vf += ",format=nv12,hwupload,scale_vaapi=w=1080:h=1920"
 
         return vf
+
 
     def _build_ffmpeg_cmd(
         self,

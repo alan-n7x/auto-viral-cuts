@@ -41,6 +41,7 @@ def test_build_video_filter():
     vf_center_vaapi = vp._build_video_filter(1920, 1080, CropMode.CENTER_CROP, is_vaapi=True)
     assert "hwupload" in vf_center_vaapi
     assert "format=nv12" in vf_center_vaapi
+    assert "scale_vaapi=w=1080:h=1920" in vf_center_vaapi
 
     # Blurred background
     vf_blur = vp._build_video_filter(1920, 1080, CropMode.BLURRED_BACKGROUND, is_vaapi=False)
@@ -53,6 +54,8 @@ def test_build_video_filter():
     assert "split" in vf_blur_vaapi
     assert "boxblur" in vf_blur_vaapi
     assert "format=nv12,hwupload" in vf_blur_vaapi
+    assert "scale_vaapi=w=1080:h=1920" in vf_blur_vaapi
+
 
 
 def test_build_ffmpeg_cmd_vaapi():
@@ -172,3 +175,41 @@ def test_end_to_end_clip_rendering_with_subtitles(tmp_path):
     assert processed.subtitle_path is not None
     assert os.path.exists(processed.subtitle_path)
     assert os.path.exists(processed.file_path)
+    assert vp.get_video_dimensions(processed.file_path) == (1080, 1920)
+
+
+def test_4k_downscale_to_1080x1920_resolution(tmp_path):
+    """Verifies that 4K UHD (3840x2160) input is accurately cropped and downscaled to 1080x1920."""
+    test_video_4k = str(tmp_path / "test_input_4k.mp4")
+    gen_cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "testsrc=duration=1:size=3840x2160:rate=30",
+        "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
+        "-c:v", "libx264", "-preset", "ultrafast",
+        "-c:a", "aac",
+        test_video_4k,
+    ]
+    subprocess.run(gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    output_dir = str(tmp_path / "cuts_4k")
+    vp = VideoProcessor(output_dir=output_dir)
+    clip_meta = ClipMetadata(
+        title="Corte 4K Downscaled",
+        start_time="00:00:00",
+        end_time="00:00:01",
+        virality_score=98,
+        virality_reason="4K Test Downscale",
+    )
+    options = ProcessingOptions(
+        hw_accel=HwAccelMode.AUTO,
+        crop_mode=CropMode.CENTER_CROP,
+        burn_subtitles=False,
+    )
+    processed = vp.process_clip(test_video_4k, clip_meta, 1, options)
+
+    assert processed.status == "completed"
+    assert os.path.exists(processed.file_path)
+    # Output must be standardized to exactly 1080x1920 vertical format
+    out_w, out_h = vp.get_video_dimensions(processed.file_path)
+    assert (out_w, out_h) == (1080, 1920)
+
