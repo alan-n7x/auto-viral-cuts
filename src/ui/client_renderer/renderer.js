@@ -53,14 +53,15 @@ let groupedPhrases = []; // Cached word phrases for active cut
 // 1. Initial Capability Check
 function checkCapabilities() {
   if (typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined") {
-    webcodecsBadge.textContent = "⚡ WebCodecs GPU Ativo";
+    webcodecsBadge.textContent = "WebCodecs GPU Ativo";
     webcodecsBadge.className = "badge badge-webcodecs";
   } else {
-    webcodecsBadge.textContent = "⚠️ WebCodecs Indisponível";
+    webcodecsBadge.textContent = "WebCodecs Indisponível";
     webcodecsBadge.className = "badge";
     webcodecsBadge.style.background = "rgba(244, 63, 94, 0.2)";
     webcodecsBadge.style.color = "#f43f5e";
   }
+
 }
 
 // 2. File Selection & Drag-and-Drop
@@ -216,13 +217,14 @@ function renderCutsList(manifests) {
     item.innerHTML = `
       <div class="cut-header">
         <div class="cut-title" title="${cut.title}">${cut.title}</div>
-        <span class="score-badge">🔥 ${cut.viral_score}</span>
+        <span class="score-badge">Score: ${cut.viral_score}</span>
       </div>
       <div class="cut-details">
-        <span>⏱️ ${formatTime(cut.start_sec)} - ${formatTime(cut.end_sec)} (${duration}s)</span>
-        <span>📝 ${cut.words ? cut.words.length : 0} palavras</span>
+        <span>${formatTime(cut.start_sec)} - ${formatTime(cut.end_sec)} (${duration}s)</span>
+        <span>${cut.words ? cut.words.length : 0} palavras</span>
       </div>
     `;
+
 
     item.addEventListener("click", () => {
       document.querySelectorAll(".cut-item").forEach((el) => el.classList.remove("active"));
@@ -442,19 +444,20 @@ btnPlayPause.addEventListener("click", () => {
 function startPlayback() {
   if (!activeCut) return;
   isPlaying = true;
-  btnPlayPause.textContent = "⏸️";
+  btnPlayPause.textContent = "Pause";
   video.play().catch(() => {});
   playbackLoop();
 }
 
 function pausePlayback() {
   isPlaying = false;
-  btnPlayPause.textContent = "▶️";
+  btnPlayPause.textContent = "Play";
   video.pause();
   if (animFrameId) {
     cancelAnimationFrame(animFrameId);
   }
 }
+
 
 function playbackLoop() {
   if (!isPlaying) return;

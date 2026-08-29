@@ -83,7 +83,8 @@ def test_groq_analyzer_analyze_transcript_mock():
                 "reason_pt": "Momento de alta tensão",
                 "hook_summary": "Você não vai acreditar nisso",
                 "hook_pt": "Você não vai acreditar nisso",
-                "suggested_caption": "Olha o que aconteceu! 😱",
+                "suggested_caption": "Olha o que aconteceu!",
+
                 "hashtags": ["#viral", "#cortes"],
                 "subtitles_pt": [
                     {

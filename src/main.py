@@ -48,10 +48,11 @@ if __name__ == "__main__":
     port = int(os.getenv("APP_PORT", "8000"))
     debug = os.getenv("DEBUG", "True").lower() == "true"
 
-    print(f"🚀 Iniciando Auto Viral Cuts em http://{host}:{port}")
-    print(f"⚡ Studio WebCodecs (Cliente) disponível em http://{host}:{port}/client")
-    print(f"📱 Interface Servidor (Gradio) disponível em http://{host}:{port}/ui")
-    print(f"📚 Documentação OpenAPI disponível em http://{host}:{port}/docs")
+    print(f"[Auto Viral Cuts] Servidor iniciado em http://{host}:{port}")
+    print(f"[Client Studio] WebCodecs disponivel em http://{host}:{port}/client")
+    print(f"[Gradio UI] Interface servidora disponivel em http://{host}:{port}/ui")
+    print(f"[OpenAPI] Documentacao Swagger disponivel em http://{host}:{port}/docs")
+
 
 
     uvicorn.run("src.main:app", host=host, port=port, reload=debug)

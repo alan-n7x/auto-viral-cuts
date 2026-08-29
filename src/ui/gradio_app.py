@@ -29,12 +29,12 @@ def run_viral_pipeline(
 ) -> Tuple[str, str, Any]:
     """Executes the full AI analysis (Groq or Gemini) and FFmpeg clipping pipeline from the Gradio UI."""
     if video_file is None:
-        return "⚠️ Por favor, envie ou arraste um arquivo de vídeo válido.", "", None
+        return "Por favor, envie ou arraste um arquivo de vídeo válido.", "", None
 
     video_path = video_file.name if hasattr(video_file, "name") else str(video_file)
 
     if not os.path.exists(video_path):
-        return f"❌ Erro: Arquivo de vídeo não encontrado em {video_path}.", "", None
+        return f"Erro: Arquivo de vídeo não encontrado em {video_path}.", "", None
 
     try:
         groq_key = groq_api_key_input.strip() or os.getenv("GROQ_API_KEY")
@@ -42,13 +42,13 @@ def run_viral_pipeline(
 
         if ai_provider == "groq" and not groq_key:
             return (
-                "❌ Chave da API do Groq não informada. Insira sua chave ou configure GROQ_API_KEY no arquivo .env.",
+                "Erro: Chave da API do Groq não informada. Insira sua chave ou configure GROQ_API_KEY no arquivo .env.",
                 "",
                 None,
             )
         elif ai_provider == "gemini" and not gemini_key:
             return (
-                "❌ Chave da API do Gemini não informada. Insira sua chave ou configure GEMINI_API_KEY no arquivo .env.",
+                "Erro: Chave da API do Gemini não informada. Insira sua chave ou configure GEMINI_API_KEY no arquivo .env.",
                 "",
                 None,
             )
@@ -76,36 +76,36 @@ def run_viral_pipeline(
 
         if not result.clips:
             return (
-                "⚠️ O vídeo foi analisado, mas nenhum corte foi gerado com sucesso.",
+                "Aviso: O vídeo foi analisado, mas nenhum corte foi gerado com sucesso.",
                 "",
                 None,
             )
 
         # Build markdown summary report
-        md_report = f"### 🎬 Resumo do Vídeo\n> {result.video_summary}\n\n"
+        md_report = f"### Resumo do Vídeo\n> {result.video_summary}\n\n"
         md_report += f"**Temas Principais:** {', '.join(result.key_themes)}\n\n"
-        md_report += f"--- \n### ✂️ Cortes Gerados com Sucesso ({len(result.clips)}):\n\n"
+        md_report += f"--- \n### Cortes Gerados com Sucesso ({len(result.clips)}):\n\n"
 
         file_paths = []
         for clip in result.clips:
             file_paths.append(clip.file_path)
             meta = clip.metadata
             md_report += f"#### **Corte #{clip.clip_index}: {meta.title}**\n"
-            md_report += f"- ⏱️ **Timestamp:** `{meta.start_time}` até `{meta.end_time}` ({clip.duration_seconds}s)\n"
-            md_report += f"- 🔥 **Pontuação de Viralidade:** `{meta.virality_score}/100`\n"
-            md_report += f"- 💡 **Motivo:** {meta.virality_reason}\n"
+            md_report += f"- **Timestamp:** `{meta.start_time}` até `{meta.end_time}` ({clip.duration_seconds}s)\n"
+            md_report += f"- **Pontuação de Viralidade:** `{meta.virality_score}/100`\n"
+            md_report += f"- **Motivo:** {meta.virality_reason}\n"
             if clip.hw_accel_used:
-                md_report += f"- ⚡ **Aceleração:** `{clip.hw_accel_used}`\n"
+                md_report += f"- **Aceleração:** `{clip.hw_accel_used}`\n"
             if clip.has_subtitles:
-                md_report += f"- 💬 **Legendas:** `Estilo {options.subtitle_style.value.upper()} (Highlight Ativo)`\n"
+                md_report += f"- **Legendas:** `Estilo {options.subtitle_style.value.upper()} (Highlight Ativo)`\n"
             if meta.suggested_caption:
-                md_report += f"- 📝 **Legenda Pronta:** {meta.suggested_caption}\n"
+                md_report += f"- **Legenda Pronta:** {meta.suggested_caption}\n"
             if meta.hashtags:
-                md_report += f"- 🏷️ **Hashtags:** {' '.join(meta.hashtags)}\n"
-            md_report += f"- 📁 **Arquivo:** `{clip.file_name}`\n\n"
+                md_report += f"- **Hashtags:** {' '.join(meta.hashtags)}\n"
+            md_report += f"- **Arquivo:** `{clip.file_name}`\n\n"
 
         first_video = file_paths[0] if file_paths else None
-        status_msg = f"✅ Sucesso! {len(result.clips)} cortes gerados em {result.execution_time_seconds}s."
+        status_msg = f"Sucesso! {len(result.clips)} cortes gerados em {result.execution_time_seconds}s."
 
         return status_msg, md_report, first_video
 
@@ -121,12 +121,13 @@ def run_viral_pipeline(
         )
         if any(marker in error_message.lower() for marker in transient_markers):
             return (
-                "⚠️ O Gemini está temporariamente sobrecarregado. "
+                "Aviso: O Gemini está temporariamente sobrecarregado. "
                 "Tente novamente em alguns minutos.",
                 "",
                 None,
             )
-        return f"❌ Erro durante o processamento: {error_message}", "", None
+        return f"Erro durante o processamento: {error_message}", "", None
+
 
 
 def create_demo() -> gr.Blocks:
@@ -137,8 +138,8 @@ def create_demo() -> gr.Blocks:
     with gr.Blocks(title="Auto Viral Cuts - IA & FFmpeg") as demo:
         gr.Markdown(
             """
-            # 🚀 Auto Viral Cuts
-            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com IA (Gemini), legendas dinâmicas (faster-whisper) e FFmpeg acelerado por GPU.
+            # Auto Viral Cuts
+            ### Transforme vídeos longos em cortes verticais virais (TikTok, Reels, Shorts) com IA (Groq / Gemini), legendas dinâmicas (faster-whisper) e FFmpeg acelerado por GPU.
             """
         )
 
@@ -155,12 +156,12 @@ def create_demo() -> gr.Blocks:
                     ai_provider = gr.Dropdown(
                         choices=["groq", "gemini"],
                         value="groq",
-                        label="⚡ Provedor de IA (Groq LPU vs Gemini)",
+                        label="Provedor de IA (Groq LPU vs Gemini)",
                     )
                     subtitle_language = gr.Dropdown(
                         choices=["original", "pt_br", "en"],
                         value="pt_br",
-                        label="🌐 Idioma das Legendas",
+                        label="Idioma das Legendas",
                     )
 
                 with gr.Row():
@@ -200,7 +201,7 @@ def create_demo() -> gr.Blocks:
                 with gr.Row():
                     burn_subtitles = gr.Checkbox(
                         value=True,
-                        label="🔥 Embutir Legendas Dinâmicas (Word-level faster-whisper)",
+                        label="Embutir Legendas Dinâmicas (Word-level faster-whisper)",
                     )
                     subtitle_style = gr.Dropdown(
                         choices=["hormozi", "neon", "minimal"],
@@ -216,7 +217,7 @@ def create_demo() -> gr.Blocks:
                 with gr.Row():
                     translate_to_pt = gr.Checkbox(
                         value=False,
-                        label="🇧🇷 Forçar Tradução para Português (PT-BR)",
+                        label="Forçar Tradução para Português (PT-BR)",
                     )
 
                 with gr.Row():
@@ -233,7 +234,8 @@ def create_demo() -> gr.Blocks:
                     lines=2,
                 )
 
-                submit_btn = gr.Button("🔥 Gerar Cortes Virais com Legendas", variant="primary", size="lg")
+                submit_btn = gr.Button("Gerar Cortes Virais com Legendas", variant="primary", size="lg")
+
 
             with gr.Column(scale=1):
                 gr.Markdown("### 2. Resultados e Pré-visualização")

@@ -14,7 +14,7 @@
   <header class="app-header">
     <div class="header-container">
       <div class="logo-area">
-        <span class="logo-icon">⚡</span>
+        <span class="logo-icon" style="font-weight: 800; font-size: 0.9rem; letter-spacing: -0.5px;">AVC</span>
         <h1 class="app-title">Auto Viral Cuts <span>Client Studio</span></h1>
       </div>
       <div class="header-badges">
@@ -30,14 +30,15 @@
   <main class="main-layout">
     <!-- Left Column: Video Input & Cuts Manifest List -->
     <section class="glass-panel">
-      <h2 class="panel-title"><i>📁</i> 1. Vídeo & Inteligência</h2>
+      <h2 class="panel-title">1. Vídeo & Inteligência</h2>
 
       <div class="dropzone" id="dropzone">
         <input type="file" id="fileInput" accept="video/*,audio/*">
-        <span class="dropzone-icon">🎬</span>
+        <span class="dropzone-icon" style="font-size: 1.8rem; font-weight: 300; opacity: 0.6;">+</span>
         <p class="dropzone-text">Arraste seu vídeo aqui ou clique</p>
         <p class="dropzone-sub">MP4, MOV, MKV, WebM (zero upload de vídeo!)</p>
       </div>
+
 
       <!-- File info (local) -->
       <div class="file-info-box" id="fileInfoBox">
@@ -72,8 +73,8 @@
       <div class="form-group">
         <label class="form-label" for="aiProviderSelect">Provedor de Inteligência Artificial:</label>
         <select id="aiProviderSelect" class="form-select">
-          <option value="groq" selected>⚡ Groq LPU (LLaMA 3.3 70B - Ultra Rápido ~1s)</option>
-          <option value="gemini">✨ Google Gemini (Gemini 3.6 Flash)</option>
+          <option value="groq" selected>Groq LPU (LLaMA 3.3 70B - Ultra Rápido ~1s)</option>
+          <option value="gemini">Google Gemini (Gemini 3.6 Flash)</option>
         </select>
       </div>
 
@@ -85,16 +86,16 @@
       <div class="form-group">
         <label class="form-label" for="audioTrackSelect">Trilha Sonora / Áudio:</label>
         <select id="audioTrackSelect" class="form-select">
-          <option value="original" selected>🔊 Manter Áudio Original do Vídeo (Vozes e Efeitos)</option>
+          <option value="original" selected>Manter Áudio Original do Vídeo (Vozes e Efeitos)</option>
         </select>
       </div>
 
       <div class="form-group">
         <label class="form-label" for="languageModeSelect">Idioma das Legendas Dinâmicas:</label>
         <select id="languageModeSelect" class="form-select">
-          <option value="original">🌐 Manter Original (Sem tradução)</option>
-          <option value="pt_br" selected>🇧🇷 Traduzir Legendas para Português (PT-BR)</option>
-          <option value="en">🇺🇸 Traduzir Legendas para Inglês (EN)</option>
+          <option value="original">Manter Original (Sem tradução)</option>
+          <option value="pt_br" selected>Traduzir Legendas para Português (PT-BR)</option>
+          <option value="en">Traduzir Legendas para Inglês (EN)</option>
         </select>
       </div>
 
@@ -103,10 +104,8 @@
         <input type="text" id="customPromptInput" class="form-input" placeholder="Ex: Foque nos momentos mais polêmicos ou engraçados">
       </div>
 
-
-
       <button id="btnGenerateManifest" class="btn btn-primary" disabled>
-        <span>🤖</span> Extrair Áudio & Gerar Cortes IA
+        Extrair Áudio & Gerar Cortes IA
       </button>
 
       <!-- Status Box -->
@@ -120,7 +119,7 @@
       <!-- Generated Cuts -->
       <div style="margin-top: 1.5rem;">
         <h3 class="panel-title" style="margin-bottom: 0.5rem; font-size: 0.9rem;">
-          <i>🔥</i> Cortes Identificados
+          Cortes Identificados
         </h3>
         <div class="cuts-list-container" id="cutsListContainer">
           <div style="text-align: center; color: var(--text-dim); font-size: 0.8rem; padding: 2rem 0;">
@@ -135,7 +134,7 @@
       <div class="canvas-wrapper">
         <canvas id="previewCanvas"></canvas>
         <div class="canvas-placeholder" id="canvasPlaceholder">
-          <span class="canvas-placeholder-icon">📱</span>
+          <span class="canvas-placeholder-icon" style="font-size: 1.5rem; font-weight: 700;">[9:16]</span>
           <p style="font-weight: 600; margin-bottom: 0.35rem;">Canvas 9:16 (1080x1920)</p>
           <p style="font-size: 0.8rem;">Selecione um vídeo e um corte para pré-visualizar com enquadramento e legendas dinâmicas</p>
         </div>
@@ -144,7 +143,7 @@
       <!-- Player Controls -->
       <div class="player-controls">
         <div class="timeline-row">
-          <button id="btnPlayPause" class="btn-ctrl" title="Reproduzir / Pausar">▶️</button>
+          <button id="btnPlayPause" class="btn-ctrl" title="Reproduzir / Pausar" style="font-size: 0.75rem; font-weight: 600;">Play</button>
           <input type="range" id="seekBar" class="seek-bar" min="0" max="100" value="0" step="0.1">
           <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
         </div>
@@ -153,7 +152,7 @@
 
     <!-- Right Column: WebCodecs GPU Export Panel -->
     <section class="glass-panel export-panel">
-      <h2 class="panel-title"><i>⚡</i> 2. Exportação WebCodecs GPU</h2>
+      <h2 class="panel-title">2. Exportação WebCodecs GPU</h2>
 
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
         Renderização acelerada por hardware no navegador. O vídeo é cortado, enquadrado e legendado diretamente pela GPU do seu dispositivo.
@@ -189,13 +188,14 @@
       <div class="form-group">
         <label class="form-label">Estilo das Legendas:</label>
         <div style="font-size: 0.8rem; color: var(--text-main); background: rgba(0,0,0,0.25); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
-          <strong style="color: var(--accent-gold);">⚡ Hormozi Style:</strong> Palavra ativa destacada em amarelo vibrante com contorno preto grosso e escala dinâmica.
+          <strong style="color: var(--accent-gold);">Hormozi Style:</strong> Palavra ativa destacada em amarelo vibrante com contorno preto grosso e escala dinâmica.
         </div>
       </div>
 
       <button id="btnExport" class="btn btn-export" disabled>
-        <span>🎬</span> Renderizar & Baixar MP4 (GPU)
+        Renderizar & Baixar MP4 (GPU)
       </button>
+
 
       <!-- Export progress bar -->
       <div class="export-progress-area" id="exportProgressArea">

@@ -1,10 +1,11 @@
-# 🚀 Auto Viral Cuts
+# Auto Viral Cuts
 
 > Aplicação profissional e modular em Python para geração automática de cortes virais (TikTok, Reels, Shorts) a partir de vídeos longos usando a **API do Google Gemini** e **FFmpeg**.
 
 ---
 
-## 🏗️ Arquitetura do Projeto (`src` layout)
+## Arquitetura do Projeto (`src` layout)
+
 
 O projeto foi construído seguindo os mais altos padrões de engenharia de software, separando a lógica de negócio central (IA e processamento de vídeo) da interface do usuário (Gradio) e da API REST (FastAPI).
 
@@ -44,7 +45,7 @@ auto-viral-cuts/
 
 ---
 
-## ✨ Funcionalidades Principais
+## Funcionalidades Principais
 
 1. **Análise Inteligente com Google Gemini 3.6 Flash:**
    - Upload de vídeos longos via Google File API com polling automático de estado.
@@ -70,7 +71,7 @@ auto-viral-cuts/
 
 ---
 
-## 🛠️ Instalação e Execução Local
+## Instalação e Execução Local
 
 ### Pré-requisitos
 - Python 3.10+
@@ -109,7 +110,7 @@ python3 src/main.py
 
 ---
 
-## 📋 Automação de Issues no GitHub
+## Automação de Issues no GitHub
 
 O projeto inclui um script Bash (`setup_issues.sh`) para popular automaticamente o repositório com issues de planejamento e roadmap utilizando o GitHub CLI (`gh`).
 
@@ -121,6 +122,7 @@ chmod +x setup_issues.sh
 
 ---
 
-## 📜 Licença
+## Licença
 
 Distribuído sob a licença MIT. Veja `LICENSE` para mais detalhes.
+
