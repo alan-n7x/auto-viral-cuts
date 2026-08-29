@@ -3,8 +3,10 @@
 import json
 import os
 import re
+import subprocess
+import tempfile
 import time
-from typing import Optional
+from typing import Optional, Tuple
 from google import genai
 from dotenv import load_dotenv
 
@@ -30,6 +32,82 @@ class GeminiAnalyzer:
             os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash")
         )
 
+    @staticmethod
+    def extract_lightweight_media_proxy(
+        media_path: str, target_bitrate: str = "96k"
+    ) -> Tuple[str, bool, int, int]:
+        """Extracts a lightweight audio proxy (e.g. 96kbps MP3) from heavy video files
+
+        to minimize bandwidth and upload times to Gemini File API.
+
+        Returns:
+            Tuple of (upload_path, is_temporary, original_size_bytes, upload_size_bytes)
+        """
+        if not os.path.exists(media_path):
+            raise FileNotFoundError(f"Arquivo de mídia não encontrado: {media_path}")
+
+        original_size = os.path.getsize(media_path)
+        ext = os.path.splitext(media_path)[1].lower()
+
+        # If already an audio file under 50MB, no need to re-encode
+        audio_extensions = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
+        if ext in audio_extensions and original_size < 50 * 1024 * 1024:
+            return media_path, False, original_size, original_size
+
+        fd, temp_proxy_path = tempfile.mkstemp(suffix="_proxy.mp3")
+        os.close(fd)
+
+        # Extract 96kbps MP3 audio proxy using FFmpeg
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", media_path,
+            "-vn",
+            "-c:a", "libmp3lame",
+            "-b:a", target_bitrate,
+            "-ar", "24000",
+            temp_proxy_path,
+        ]
+
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            proxy_size = os.path.getsize(temp_proxy_path)
+            return temp_proxy_path, True, original_size, proxy_size
+        except Exception:
+            # Fallback to AAC if libmp3lame has issues
+            try:
+                cmd_aac = [
+                    "ffmpeg", "-y",
+                    "-i", media_path,
+                    "-vn",
+                    "-c:a", "aac",
+                    "-b:a", target_bitrate,
+                    "-ar", "24000",
+                    temp_proxy_path,
+                ]
+                subprocess.run(
+                    cmd_aac,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True,
+                )
+                proxy_size = os.path.getsize(temp_proxy_path)
+                return temp_proxy_path, True, original_size, proxy_size
+            except Exception as e:
+                if os.path.exists(temp_proxy_path):
+                    try:
+                        os.remove(temp_proxy_path)
+                    except Exception:
+                        pass
+                print(f"Aviso: Falha ao extrair proxy com FFmpeg ({e}). Usando arquivo original.")
+                return media_path, False, original_size, original_size
+
     def analyze_video(
         self, video_path: str, options: Optional[ProcessingOptions] = None
     ) -> ViralAnalysisResponse:
@@ -39,9 +117,23 @@ class GeminiAnalyzer:
 
         options = options or ProcessingOptions()
 
-        print(f"[{time.strftime('%H:%M:%S')}] Enviando vídeo para a API do Gemini ({video_path})...")
-        video_file = self.client.files.upload(file=video_path)
-        print(f"[{time.strftime('%H:%M:%S')}] Vídeo enviado. Nome/URI: {video_file.name}")
+        # Extract lightweight audio proxy for heavy or 4K video files
+        upload_path, is_temp, orig_size, upload_size = self.extract_lightweight_media_proxy(
+            video_path
+        )
+
+        if is_temp and orig_size > 0:
+            savings_pct = (1.0 - upload_size / orig_size) * 100
+            print(
+                f"[{time.strftime('%H:%M:%S')}] Otimização de Mídia (4K/HD): "
+                f"Original: {orig_size / (1024 * 1024):.2f} MB -> Proxy IA: {upload_size / (1024 * 1024):.2f} MB "
+                f"({savings_pct:.1f}% de economia de banda e upload)."
+            )
+
+        print(f"[{time.strftime('%H:%M:%S')}] Enviando mídia otimizada para Gemini File API ({upload_path})...")
+        video_file = self.client.files.upload(file=upload_path)
+        print(f"[{time.strftime('%H:%M:%S')}] Mídia enviada. Nome/URI: {video_file.name}")
+
 
         try:
             print(f"[{time.strftime('%H:%M:%S')}] Aguardando processamento do arquivo no Gemini...")
@@ -135,6 +227,14 @@ class GeminiAnalyzer:
                 self.client.files.delete(name=video_file.name)
             except Exception as e:
                 print(f"Aviso: Não foi possível deletar o arquivo remoto do Gemini: {e}")
+
+            # Cleanup local temporary proxy file
+            if is_temp and os.path.exists(upload_path):
+                try:
+                    os.remove(upload_path)
+                except Exception as e:
+                    print(f"Aviso: Não foi possível deletar o arquivo proxy temporário local: {e}")
+
 
     @staticmethod
     def _resolve_model_name(model_name: str) -> str:
