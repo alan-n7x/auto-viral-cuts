@@ -41,7 +41,23 @@ class SubtitleStyle(str, Enum):
     MINIMAL = "minimal"  # Clean white text with subtle shadow
 
 
+class AiProvider(str, Enum):
+    """Supported AI model providers for viral analysis and translation."""
+
+    GROQ = "groq"  # Groq LPU (llama-3.3-70b-versatile, ultra-fast 250+ t/s)
+    GEMINI = "gemini"  # Google Gemini 3.6 Flash
+
+
+class SubtitleLanguage(str, Enum):
+    """Target language for subtitle transcription and translation."""
+
+    ORIGINAL = "original"  # Preserva o idioma original do áudio
+    PT_BR = "pt_br"  # Traduz legendas e títulos para Português do Brasil
+    EN = "en"  # Traduz legendas e títulos para Inglês
+
+
 class SubtitleCue(BaseModel):
+
     """Timestamped phrase or sentence for translated subtitles."""
 
     start: float = Field(..., description="Timestamp de início em segundos no corte.")
@@ -201,9 +217,22 @@ class ProcessingOptions(BaseModel):
         default=False,
         description="Traduzir títulos, ganchos e legendas para Português (PT-BR). Se falso, mantém o áudio e legendas originais.",
     )
+    ai_provider: AiProvider = Field(
+        default=AiProvider.GROQ,
+        description="Provedor de IA para análise dos cortes virais ('groq' ou 'gemini').",
+    )
+    subtitle_language: SubtitleLanguage = Field(
+        default=SubtitleLanguage.ORIGINAL,
+        description="Idioma das legendas: 'original' (mantém o falado), 'pt_br' ou 'en'.",
+    )
+    groq_api_key: Optional[str] = Field(
+        default=None,
+        description="Chave de API do Groq (opcional se configurada no .env ou ambiente).",
+    )
 
 
 class ProcessedClip(BaseModel):
+
 
     """Details of an exported video cut."""
 
@@ -343,6 +372,11 @@ class ClientCutManifest(BaseModel):
         default_factory=list,
         description="Lista de frases traduzidas para PT-BR sincronizadas com timestamps.",
     )
+    subtitle_language: str = Field(
+        default="original",
+        description="Idioma configurado para as legendas ('original', 'pt_br', 'en').",
+    )
+
 
 
 

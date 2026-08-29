@@ -153,3 +153,52 @@ class AudioTranscriber:
                     )
                 )
         return interval_words
+
+    @staticmethod
+    def format_transcript_with_timestamps(
+        words: List[WordTimestamp],
+        max_words_per_line: int = 8,
+        max_pause_sec: float = 0.8,
+    ) -> str:
+        """Formats a list of WordTimestamp into readable sentence chunks with exact [start -> end] timestamps.
+
+        Example:
+            [00:00:12.400 -> 00:00:15.100] Keep your crew together
+            [00:00:15.200 -> 00:00:18.000] We can do this
+        """
+        if not words:
+            return ""
+
+        def format_sec(sec: float) -> str:
+            hours = int(sec // 3600)
+            minutes = int((sec % 3600) // 60)
+            seconds = sec % 60
+            return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
+
+        lines = []
+        current_chunk: List[WordTimestamp] = []
+
+        for w in words:
+            current_chunk.append(w)
+            if len(current_chunk) >= max_words_per_line:
+                t_start = format_sec(current_chunk[0].start)
+                t_end = format_sec(current_chunk[-1].end)
+                text = " ".join(item.word.strip() for item in current_chunk)
+                lines.append(f"[{t_start} -> {t_end}] {text}")
+                current_chunk = []
+            elif len(current_chunk) > 1 and (w.end - current_chunk[-2].end) > max_pause_sec:
+                chunk_to_save = current_chunk[:-1]
+                t_start = format_sec(chunk_to_save[0].start)
+                t_end = format_sec(chunk_to_save[-1].end)
+                text = " ".join(item.word.strip() for item in chunk_to_save)
+                lines.append(f"[{t_start} -> {t_end}] {text}")
+                current_chunk = [w]
+
+        if current_chunk:
+            t_start = format_sec(current_chunk[0].start)
+            t_end = format_sec(current_chunk[-1].end)
+            text = " ".join(item.word.strip() for item in current_chunk)
+            lines.append(f"[{t_start} -> {t_end}] {text}")
+
+        return "\n".join(lines)
+

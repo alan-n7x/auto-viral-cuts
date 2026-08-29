@@ -340,3 +340,50 @@ Retorne estritamente um JSON válido correspondente ao schema solicitado contend
 """
         return prompt.strip()
 
+    def analyze_transcript(
+        self, formatted_transcript: str, options: ProcessingOptions
+    ) -> ViralAnalysisResponse:
+        """Analyzes a text-only formatted transcript with Gemini without uploading any media files."""
+        options_copy = options.model_copy()
+        custom_instructions = (
+            f"\nTRANSCRIÇÃO COM TIMESTAMPS:\n\"\"\"\n{formatted_transcript}\n\"\"\""
+        )
+        if options_copy.custom_prompt:
+            options_copy.custom_prompt += custom_instructions
+        else:
+            options_copy.custom_prompt = custom_instructions
+
+        prompt = self._build_prompt(options_copy)
+
+        model_names = [self.model_name]
+        if self.fallback_model_name != self.model_name:
+            model_names.append(self.fallback_model_name)
+
+        last_error = None
+        for current_model_name in model_names:
+            try:
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] Enviando texto transcrito para Gemini "
+                    f"({current_model_name})..."
+                )
+                interaction = self.client.interactions.create(
+                    model=current_model_name,
+                    input=[
+                        {"type": "text", "text": prompt},
+                    ],
+                    generation_config={"temperature": 0.3},
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": ViralAnalysisResponse.model_json_schema(),
+                    },
+                )
+                response_text = interaction.outputs[-1].text
+                return ViralAnalysisResponse.model_validate_json(response_text)
+            except Exception as e:
+                last_error = e
+                print(f"Aviso: Erro ao consultar Gemini com texto no modelo {current_model_name}: {e}")
+
+        raise RuntimeError(f"Falha ao analisar transcrição com Gemini: {last_error}")
+
+
