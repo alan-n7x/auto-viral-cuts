@@ -302,17 +302,41 @@ class GeminiAnalyzer:
             else ""
         )
 
+        if options.translate_to_pt:
+            prompt = f"""
+Você é um editor sênior especializado em cortes virais (TikTok, Reels e YouTube Shorts) e tradutor audiovisual para Português do Brasil (PT-BR).
+
+Analise o conteúdo (áudio ou vídeo) fornecido e execute as três etapas:
+1. SELEÇÃO: Identifique até {options.max_clips} melhores trechos com alto potencial de retenção.
+2. ENGAJAMENTO: Crie títulos e ganchos chamativos em PT-BR para cada corte (preenchendo title_pt e hook_pt).
+3. TRADUÇÃO & SINCRONIA: Traduza todas as falas internas para PT-BR (preenchendo subtitles_pt), adaptando expressões idiomáticas de forma natural e mantendo os timestamps numéricos exatos de início e fim de cada frase.
+
+DIRETRIZES DE EDIÇÃO:
+- Duração por corte: Entre {options.min_duration_seconds} e {options.max_duration_seconds} segundos.
+- Gancho inicial forte: O trecho deve prender a atenção nos primeiros 3 a 5 segundos.
+- Narrativa fechada: Cada corte precisa de começo, meio e fim coerentes (sem falas cortadas ao meio).
+- Tradução dinâmica (PT-BR): Linguagem natural e concisa para leitura rápida em tela, adaptando gírias e expressões idiomáticas.
+- Fidelidade temporal: Os valores numéricos de "start" e "end" em subtitles_pt devem corresponder exatamente aos segundos da mídia.
+- {platform_hint}
+{custom_instructions}
+
+Retorne estritamente um JSON válido correspondente ao schema solicitado contendo o resumo geral do vídeo, temas principais e a lista de clips com title, title_pt, hook_pt, reason_pt e subtitles_pt.
+"""
+            return prompt.strip()
+
         prompt = f"""
 Você é um especialista mundial em edição de vídeo viral e retenção de audiência para redes sociais.
 Analise o conteúdo (áudio ou vídeo) fornecido e identifique exatamente até {options.max_clips} trechos com maior potencial de viralização.
 
 Diretrizes de Extração:
 1. Duração de cada corte: entre {options.min_duration_seconds} e {options.max_duration_seconds} segundos.
-2. Timestamps precisos no formato 'HH:MM:SS' ou 'MM:SS'.
-3. Pontuação de viraildade (virality_score) de 0 a 100 baseada no gancho inicial, clareza e emoção.
-4. {platform_hint}
+2. Mantenha os títulos, ganchos e falas no idioma original da mídia.
+3. Timestamps precisos no formato 'HH:MM:SS' ou 'MM:SS'.
+4. Pontuação de viraildade (virality_score) de 0 a 100 baseada no gancho inicial, clareza e emoção.
+5. {platform_hint}
 {custom_instructions}
 
-Retorne estritamente um JSON válido correspondente ao schema solicitado contendo o resumo geral do vídeo, temas principais e a lista de clips.
+Retorne estritamente um JSON válido correspondente ao schema solicitado contendo o resumo geral do vídeo, temas principais e a lista de clips no idioma original.
 """
         return prompt.strip()
+

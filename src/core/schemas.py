@@ -41,12 +41,24 @@ class SubtitleStyle(str, Enum):
     MINIMAL = "minimal"  # Clean white text with subtle shadow
 
 
+class SubtitleCue(BaseModel):
+    """Timestamped phrase or sentence for translated subtitles."""
+
+    start: float = Field(..., description="Timestamp de início em segundos no corte.")
+    end: float = Field(..., description="Timestamp de término em segundos no corte.")
+    text: str = Field(..., description="Frase da fala traduzida sincronizada com este intervalo.")
+
+
 class ClipMetadata(BaseModel):
     """Metadata for a single viral clip candidate."""
 
     title: str = Field(
         ...,
         description="Título chamativo ou hook intrigante para atrair atenção imediata.",
+    )
+    title_pt: Optional[str] = Field(
+        default=None,
+        description="Título chamativo e instigante em Português do Brasil (PT-BR).",
     )
     start_time: str = Field(
         ...,
@@ -70,9 +82,17 @@ class ClipMetadata(BaseModel):
         ...,
         description="Explicação detalhada do porquê o trecho tem alto potencial de retenção.",
     )
+    reason_pt: Optional[str] = Field(
+        default=None,
+        description="Explicação do gatilho de engajamento do trecho em PT-BR.",
+    )
     hook_summary: Optional[str] = Field(
         default=None,
         description="Resumo do gancho inicial utilizado nos primeiros 3 a 5 segundos.",
+    )
+    hook_pt: Optional[str] = Field(
+        default=None,
+        description="Frase de impacto inicial do corte em Português do Brasil (PT-BR).",
     )
     suggested_caption: Optional[str] = Field(
         default=None,
@@ -82,6 +102,11 @@ class ClipMetadata(BaseModel):
         default_factory=list,
         description="Lista de hashtags estratégicas recomendadas para o corte.",
     )
+    subtitles_pt: List[SubtitleCue] = Field(
+        default_factory=list,
+        description="Lista de falas traduzidas para PT-BR sincronizadas com timestamps.",
+    )
+
 
 
 class ViralAnalysisResponse(BaseModel):
@@ -172,9 +197,14 @@ class ProcessingOptions(BaseModel):
         default="base",
         description="Tamanho do modelo faster-whisper para transcrição (tiny, base, small).",
     )
+    translate_to_pt: bool = Field(
+        default=False,
+        description="Traduzir títulos, ganchos e legendas para Português (PT-BR). Se falso, mantém o áudio e legendas originais.",
+    )
 
 
 class ProcessedClip(BaseModel):
+
     """Details of an exported video cut."""
 
     clip_index: int = Field(
@@ -297,10 +327,23 @@ class ClientCutManifest(BaseModel):
         default="center_crop",
         description="Modo de enquadramento (ex: center_crop, fit_black_bars).",
     )
+    title_pt: Optional[str] = Field(
+        default=None,
+        description="Título adaptado para Português (PT-BR), se aplicável.",
+    )
+    hook_pt: Optional[str] = Field(
+        default=None,
+        description="Frase de impacto inicial em Português (PT-BR), se aplicável.",
+    )
     words: List[WordTimestamp] = Field(
         default_factory=list,
         description="Lista de palavras com timestamps para renderização de legendas.",
     )
+    subtitles_pt: List[SubtitleCue] = Field(
+        default_factory=list,
+        description="Lista de frases traduzidas para PT-BR sincronizadas com timestamps.",
+    )
+
 
 
 class TaskState(str, Enum):

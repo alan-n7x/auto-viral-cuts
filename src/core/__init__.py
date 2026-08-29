@@ -9,6 +9,7 @@ from src.core.schemas import (
     ProcessedClip,
     ProcessingOptions,
     ProcessingResult,
+    SubtitleCue,
     SubtitleStyle,
     TaskState,
     TaskStatusResponse,
@@ -25,11 +26,13 @@ __all__ = [
     "ProcessedClip",
     "ProcessingOptions",
     "ProcessingResult",
+    "SubtitleCue",
     "SubtitleStyle",
     "TaskState",
     "TaskStatusResponse",
     "ViralAnalysisResponse",
     "WordTimestamp",
 ]
+
 
 
