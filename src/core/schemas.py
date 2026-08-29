@@ -218,13 +218,14 @@ class ProcessingOptions(BaseModel):
         description="Traduzir títulos, ganchos e legendas para Português (PT-BR). Se falso, mantém o áudio e legendas originais.",
     )
     ai_provider: AiProvider = Field(
-        default=AiProvider.GROQ,
+        default=AiProvider.GEMINI,
         description="Provedor de IA para análise dos cortes virais ('groq' ou 'gemini').",
     )
     subtitle_language: SubtitleLanguage = Field(
         default=SubtitleLanguage.ORIGINAL,
         description="Idioma das legendas: 'original' (mantém o falado), 'pt_br' ou 'en'.",
     )
+
     groq_api_key: Optional[str] = Field(
         default=None,
         description="Chave de API do Groq (opcional se configurada no .env ou ambiente).",

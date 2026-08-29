@@ -2,10 +2,13 @@
 
 import json
 import os
+import subprocess
+import tempfile
 import time
 from typing import List, Optional
 
 from groq import Groq
+
 
 from src.core.schemas import (
     ClipMetadata,
@@ -190,36 +193,86 @@ TRANSCRIÇÃO COM TIMESTAMPS:
 
         raise RuntimeError(f"Falha ao analisar transcrição no Groq: {last_error}")
 
+    def _compress_audio_for_groq(self, audio_path: str) -> str:
+        """Compresses audio to lightweight 16kHz mono MP3 (64kbps) to stay well under Groq's 25MB limit."""
+        size_bytes = os.path.getsize(audio_path)
+        ext = os.path.splitext(audio_path)[1].lower()
+
+        # If already compressed MP3 and under 20MB, reuse directly
+        if ext in [".mp3", ".m4a", ".aac"] and size_bytes < 20 * 1024 * 1024:
+            return audio_path
+
+        temp_mp3 = tempfile.NamedTemporaryFile(suffix="_groq.mp3", delete=False).name
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", audio_path,
+            "-vn",
+            "-acodec", "libmp3lame",
+            "-b:a", "64k",
+            "-ar", "16000",
+            "-ac", "1",
+            temp_mp3,
+        ]
+        try:
+            subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+            )
+            return temp_mp3
+        except Exception as e:
+            print(f"Aviso: Compressão para Groq falhou ({e}), tentando com áudio original.")
+            if os.path.exists(temp_mp3):
+                try:
+                    os.remove(temp_mp3)
+                except Exception:
+                    pass
+            return audio_path
+
     def transcribe_audio_fast(self, audio_path: str) -> List[WordTimestamp]:
         """Transcribes audio in seconds using whisper-large-v3 on Groq Cloud."""
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Arquivo de áudio não encontrado: {audio_path}")
 
-        print(f"[{time.strftime('%H:%M:%S')}] Enviando áudio para Groq Whisper (whisper-large-v3)...")
-        with open(audio_path, "rb") as f:
-            transcription = self.client.audio.transcriptions.create(
-                file=f,
-                model="whisper-large-v3",
-                response_format="verbose_json",
-                timestamp_granularities=["word"],
-            )
+        # Compress to 64kbps MP3 if needed to prevent 413 Request Entity Too Large (>25MB)
+        upload_path = self._compress_audio_for_groq(audio_path)
+        is_temp = upload_path != audio_path
 
-        words_list: List[WordTimestamp] = []
-        raw_words = getattr(transcription, "words", None)
-        if raw_words:
-            for item in raw_words:
-                w_text = item.get("word") if isinstance(item, dict) else getattr(item, "word", "")
-                w_start = item.get("start") if isinstance(item, dict) else getattr(item, "start", 0.0)
-                w_end = item.get("end") if isinstance(item, dict) else getattr(item, "end", 0.0)
-                words_list.append(
-                    WordTimestamp(
-                        word=w_text.strip(),
-                        start=float(w_start),
-                        end=float(w_end),
-                    )
+        try:
+            print(
+                f"[{time.strftime('%H:%M:%S')}] Enviando áudio comprimido "
+                f"({os.path.getsize(upload_path) / (1024 * 1024):.2f} MB) para Groq Whisper (whisper-large-v3)..."
+            )
+            with open(upload_path, "rb") as f:
+                transcription = self.client.audio.transcriptions.create(
+                    file=f,
+                    model="whisper-large-v3",
+                    response_format="verbose_json",
+                    timestamp_granularities=["word"],
                 )
 
-        print(
-            f"[{time.strftime('%H:%M:%S')}] Groq Whisper concluiu: {len(words_list)} palavras detectadas!"
-        )
-        return words_list
+            words_list: List[WordTimestamp] = []
+            raw_words = getattr(transcription, "words", None)
+            if raw_words:
+                for item in raw_words:
+                    w_text = item.get("word") if isinstance(item, dict) else getattr(item, "word", "")
+                    w_start = item.get("start") if isinstance(item, dict) else getattr(item, "start", 0.0)
+                    w_end = item.get("end") if isinstance(item, dict) else getattr(item, "end", 0.0)
+                    words_list.append(
+                        WordTimestamp(
+                            word=w_text.strip(),
+                            start=float(w_start),
+                            end=float(w_end),
+                        )
+                    )
+
+            print(
+                f"[{time.strftime('%H:%M:%S')}] Groq Whisper concluiu: {len(words_list)} palavras detectadas!"
+            )
+            return words_list
+
+        finally:
+            if is_temp and os.path.exists(upload_path):
+                try:
+                    os.remove(upload_path)
+                except Exception:
+                    pass
+

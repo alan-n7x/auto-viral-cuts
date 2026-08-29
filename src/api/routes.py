@@ -104,9 +104,10 @@ async def process_video_async_endpoint(
     subtitle_style: SubtitleStyle = Form(SubtitleStyle.HORMOZI),
     target_platform: PlatformPreset = Form(PlatformPreset.GENERAL),
     translate_to_pt: bool = Form(False),
-    ai_provider: AiProvider = Form(AiProvider.GROQ),
+    ai_provider: AiProvider = Form(AiProvider.GEMINI),
     subtitle_language: SubtitleLanguage = Form(SubtitleLanguage.ORIGINAL),
     groq_api_key: Optional[str] = Form(None),
+
     use_case: ProcessVideoUseCase = Depends(get_process_video_use_case),
     manager: TaskManager = Depends(get_task_manager),
 ) -> AsyncTaskResponse:
@@ -214,9 +215,10 @@ async def generate_manifest_endpoint(
     crop_mode: str = Form("center_crop"),
     whisper_model: str = Form("base"),
     translate_to_pt: bool = Form(False),
-    ai_provider: AiProvider = Form(AiProvider.GROQ),
+    ai_provider: AiProvider = Form(AiProvider.GEMINI),
     subtitle_language: SubtitleLanguage = Form(SubtitleLanguage.ORIGINAL),
     groq_api_key: Optional[str] = Form(None),
+
 ) -> List[ClientCutManifest]:
 
     """Receives an audio or video file, runs speech transcription, formats text with timestamps,

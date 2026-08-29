@@ -203,3 +203,29 @@ def test_generate_manifest_endpoint_with_groq(client):
         assert cut["subtitle_language"] == "pt_br"
         assert len(cut["subtitles_pt"]) == 1
         assert cut["subtitles_pt"][0]["text"] == "Olá mundo traduzido pelo Groq"
+
+
+def test_groq_audio_compression(tmp_path):
+    """Validates that GroqAnalyzer compresses audio to stay under 25MB limit."""
+    import subprocess
+    analyzer = GroqAnalyzer(api_key="gsk_dummy")
+
+    # Generate a dummy wav with ffmpeg
+    sample_wav = str(tmp_path / "sample.wav")
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", "sine=frequency=1000:duration=1",
+        "-ar", "44100",
+        "-ac", "2",
+        sample_wav,
+    ]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    compressed = analyzer._compress_audio_for_groq(sample_wav)
+    assert os.path.exists(compressed)
+    assert compressed.endswith(".mp3")
+    assert os.path.getsize(compressed) < os.path.getsize(sample_wav)
+    if compressed != sample_wav and os.path.exists(compressed):
+        os.remove(compressed)
+
