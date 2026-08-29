@@ -27,8 +27,9 @@ class GroqAnalyzer:
     def __init__(self, api_key: Optional[str] = None) -> None:
         self.api_key = api_key or os.getenv("GROQ_API_KEY")
         self._client: Optional[Groq] = None
-        self.model_name = "llama-3.3-70b-versatile"
-        self.fallback_model_name = "llama-3.1-8b-instant"
+        self.model_name = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        self.fallback_model_name = "openai/gpt-oss-120b"
+
 
     @property
     def client(self) -> Groq:
@@ -149,14 +150,51 @@ TRANSCRIÇÃO COM TIMESTAMPS:
 """
         return prompt.strip()
 
+    def get_candidate_models(self) -> List[str]:
+        """Dynamically identifies available chat models on the user's Groq account."""
+        candidates = []
+        env_model = os.getenv("GROQ_MODEL")
+        if env_model:
+            candidates.append(env_model)
+        if self.model_name and self.model_name not in candidates:
+            candidates.append(self.model_name)
+        if self.fallback_model_name and self.fallback_model_name not in candidates:
+            candidates.append(self.fallback_model_name)
+
+        candidates.extend([
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.6-27b",
+            "groq/compound",
+        ])
+
+        try:
+            active_data = self.client.models.list()
+            active_ids = {m.id for m in active_data.data if getattr(m, "active", True)}
+            valid = [m for m in candidates if m in active_ids]
+            if valid:
+                return valid
+        except Exception:
+            pass
+
+        seen = set()
+        unique_candidates = []
+        for m in candidates:
+            if m not in seen:
+                seen.add(m)
+                unique_candidates.append(m)
+        return unique_candidates
+
     def analyze_transcript(
         self, formatted_transcript: str, options: ProcessingOptions
     ) -> ViralAnalysisResponse:
-        """Sends formatted timestamped transcript to Groq LLaMA 3.3 with instant JSON response."""
+        """Sends formatted timestamped transcript to Groq with instant JSON response."""
         prompt = self._build_prompt(formatted_transcript, options)
 
-        models_to_try = [self.model_name, self.fallback_model_name]
+        models_to_try = self.get_candidate_models()
         last_error = None
+
 
         for model in models_to_try:
             try:
