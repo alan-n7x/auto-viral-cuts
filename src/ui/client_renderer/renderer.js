@@ -624,6 +624,44 @@ async function findSupportedEncoderConfig(width, height, bitrate) {
   };
 }
 
+// Helper to extract and slice audio PCM data for the active clip
+async function extractClipAudio(file, startSec, endSec) {
+  let audioContext = null;
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuffer = await file.arrayBuffer();
+    const fullBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const sampleRate = fullBuffer.sampleRate;
+    const numChannels = fullBuffer.numberOfChannels;
+    const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+    const endSample = Math.min(fullBuffer.length, Math.ceil(endSec * sampleRate));
+    const clipSamples = Math.max(1, endSample - startSample);
+
+    const channelData = [];
+    for (let c = 0; c < numChannels; c++) {
+      const origData = fullBuffer.getChannelData(c);
+      const sliced = new Float32Array(clipSamples);
+      sliced.set(origData.subarray(startSample, endSample));
+      channelData.push(sliced);
+    }
+
+    return {
+      sampleRate,
+      numChannels,
+      length: clipSamples,
+      channels: channelData,
+    };
+  } catch (err) {
+    console.warn("Falha ao decodificar áudio para exportação (vídeo sairá sem áudio):", err);
+    return null;
+  } finally {
+    if (audioContext && audioContext.state !== "closed") {
+      audioContext.close().catch(() => {});
+    }
+  }
+}
+
 // 7. WebCodecs VideoEncoder + mp4-muxer GPU Export Pipeline
 btnExport.addEventListener("click", async () => {
   if (!activeCut || !originalFile) return;
@@ -637,8 +675,8 @@ btnExport.addEventListener("click", async () => {
   const exportH = is1080p ? 1920 : 1280;
   const bitrate = is1080p ? 5_000_000 : 3_000_000;
 
-  exportStatusLabel.innerHTML = `<span>Inicializando WebCodecs VideoEncoder...</span><span>0%</span>`;
-  exportProgressFill.style.width = "0%";
+  exportStatusLabel.innerHTML = `<span>Extraindo e decodificando áudio original...</span><span>5%</span>`;
+  exportProgressFill.style.width = "5%";
 
   try {
     if (typeof VideoEncoder === "undefined") {
@@ -646,6 +684,16 @@ btnExport.addEventListener("click", async () => {
         "WebCodecs VideoEncoder não é suportado pelo seu navegador. Use Chrome, Edge ou Safari recente."
       );
     }
+
+    const startSec = activeCut.start_sec;
+    const endSec = activeCut.end_sec;
+
+    // Step A: Extract clip audio buffer
+    const clipAudio = await extractClipAudio(originalFile, startSec, endSec);
+    const hasAudio = clipAudio !== null && typeof AudioEncoder !== "undefined";
+
+    exportStatusLabel.innerHTML = `<span>Inicializando WebCodecs VideoEncoder...</span><span>10%</span>`;
+    exportProgressFill.style.width = "10%";
 
     const encoderConfig = await findSupportedEncoderConfig(exportW, exportH, bitrate);
     console.log("Iniciando VideoEncoder com:", encoderConfig);
@@ -656,8 +704,8 @@ btnExport.addEventListener("click", async () => {
     const isVp8 = encoderConfig.codec.startsWith("vp8");
     const muxerCodec = isAvc ? "avc" : (isVp9 ? "vp9" : (isVp8 ? "vp8" : "avc"));
 
-    // Initialize mp4-muxer
-    const muxer = new Muxer({
+    // Initialize mp4-muxer with video AND audio tracks
+    const muxerOptions = {
       target: new ArrayBufferTarget(),
       video: {
         codec: muxerCodec,
@@ -665,10 +713,74 @@ btnExport.addEventListener("click", async () => {
         height: exportH,
       },
       fastStart: "in-memory",
-    });
+    };
 
+    if (hasAudio) {
+      muxerOptions.audio = {
+        codec: "aac",
+        numberOfChannels: clipAudio.numChannels,
+        sampleRate: clipAudio.sampleRate,
+      };
+      console.log(`Muxer configurado com áudio AAC (${clipAudio.numChannels} canais, ${clipAudio.sampleRate} Hz)`);
+    }
+
+    const muxer = new Muxer(muxerOptions);
+
+    // Step B: Encode audio with AudioEncoder if available
+    if (hasAudio) {
+      try {
+        const audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          error: (err) => console.warn("Erro no AudioEncoder:", err),
+        });
+
+        audioEncoder.configure({
+          codec: "mp4a.40.2", // AAC-LC
+          numberOfChannels: clipAudio.numChannels,
+          sampleRate: clipAudio.sampleRate,
+          bitrate: 128_000,
+        });
+
+        // Feed audio samples in 1024-frame chunks (standard AAC frame size)
+        const frameSize = 1024;
+        const totalSamples = clipAudio.length;
+        const sampleRate = clipAudio.sampleRate;
+        const numChannels = clipAudio.numChannels;
+
+        for (let offset = 0; offset < totalSamples; offset += frameSize) {
+          const framesInChunk = Math.min(frameSize, totalSamples - offset);
+          const planarData = new Float32Array(framesInChunk * numChannels);
+
+          for (let c = 0; c < numChannels; c++) {
+            const channelSlice = clipAudio.channels[c].subarray(offset, offset + framesInChunk);
+            planarData.set(channelSlice, c * framesInChunk);
+          }
+
+          const timestampMicros = Math.round((offset / sampleRate) * 1_000_000);
+          const audioData = new AudioData({
+            format: "f32-planar",
+            sampleRate: sampleRate,
+            numberOfFrames: framesInChunk,
+            numberOfChannels: numChannels,
+            timestamp: timestampMicros,
+            data: planarData,
+          });
+
+          audioEncoder.encode(audioData);
+          audioData.close();
+        }
+
+        await audioEncoder.flush();
+        audioEncoder.close();
+        console.log("Faixa de áudio codificada em AAC e sincronizada no muxer com sucesso.");
+      } catch (audioErr) {
+        console.warn("Codificação de áudio falhou, continuando apenas com vídeo:", audioErr);
+      }
+    }
+
+    // Step C: Encode video frames
     let encoderError = null;
-    let encoder = new VideoEncoder({
+    const encoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error: (err) => {
         console.error("Erro no VideoEncoder:", err);
@@ -685,7 +797,6 @@ btnExport.addEventListener("click", async () => {
       encoder.configure(encoderConfig);
     }
 
-
     // Create offscreen canvas for rendering export frames
     const offscreen = document.createElement("canvas");
     offscreen.width = exportW;
@@ -693,8 +804,6 @@ btnExport.addEventListener("click", async () => {
     const offCtx = offscreen.getContext("2d", { willReadFrequently: false });
 
     const fps = 30;
-    const startSec = activeCut.start_sec;
-    const endSec = activeCut.end_sec;
     const totalFrames = Math.max(1, Math.floor((endSec - startSec) * fps));
     const frameDurationMicros = Math.round(1_000_000 / fps);
 
@@ -740,7 +849,7 @@ btnExport.addEventListener("click", async () => {
     }
 
     // Flush encoder and finalize muxer
-    exportStatusLabel.innerHTML = `<span>Finalizando container MP4...</span><span>98%</span>`;
+    exportStatusLabel.innerHTML = `<span>Finalizando container MP4 com áudio...</span><span>98%</span>`;
     await encoder.flush();
     encoder.close();
 
@@ -777,9 +886,9 @@ btnExport.addEventListener("click", async () => {
   } finally {
     btnExport.disabled = false;
   }
-
 });
 
 // Run capabilities check & initialize dropzone
 checkCapabilities();
 initDropzone();
+
