@@ -672,7 +672,7 @@ async function findSupportedEncoderConfig(width, height, bitrate) {
         width: width,
         height: height,
         bitrate: bitrate,
-        framerate: 30,
+        framerate: 60,
         hardwareAcceleration: hw,
       };
 
@@ -698,13 +698,49 @@ async function findSupportedEncoderConfig(width, height, bitrate) {
     width: width,
     height: height,
     bitrate: bitrate,
-    framerate: 30,
+    framerate: 60,
     hardwareAcceleration: "no-preference",
   };
 }
 
 // Helper to extract and slice audio PCM data for the active clip
 async function extractClipAudio(file, startSec, endSec) {
+  // Strategy 1: Request clean 48kHz stereo WAV slice from server FFmpeg (lightweight, zero RAM freezing)
+  try {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    formData.append("start_sec", startSec);
+    formData.append("end_sec", endSec);
+
+    const res = await fetch("/api/v1/extract-clip-audio", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (res.ok) {
+      const wavArrayBuffer = await res.arrayBuffer();
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+      const decodedBuffer = await audioContext.decodeAudioData(wavArrayBuffer);
+      audioContext.close().catch(() => {});
+
+      const numChannels = decodedBuffer.numberOfChannels;
+      const channelData = [];
+      for (let c = 0; c < numChannels; c++) {
+        channelData.push(decodedBuffer.getChannelData(c));
+      }
+
+      return {
+        sampleRate: decodedBuffer.sampleRate,
+        numChannels,
+        length: decodedBuffer.length,
+        channels: channelData,
+      };
+    }
+  } catch (netErr) {
+    console.warn("Extração de áudio via servidor falhou, tentando fallback local:", netErr);
+  }
+
+  // Strategy 2: Local Web Audio API fallback (for small files)
   let audioContext = null;
   try {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -732,7 +768,7 @@ async function extractClipAudio(file, startSec, endSec) {
       channels: channelData,
     };
   } catch (err) {
-    console.warn("Falha ao decodificar áudio para exportação (vídeo sairá sem áudio):", err);
+    console.warn("Falha ao decodificar áudio local para exportação:", err);
     return null;
   } finally {
     if (audioContext && audioContext.state !== "closed") {
@@ -747,14 +783,15 @@ btnExport.addEventListener("click", async () => {
 
   pausePlayback();
   btnExport.disabled = true;
+  if (btnExportFfmpeg) btnExportFfmpeg.disabled = true;
   exportProgressArea.style.display = "block";
 
   const is1080p = resolutionSelect.value === "1080x1920";
   const exportW = is1080p ? 1080 : 720;
   const exportH = is1080p ? 1920 : 1280;
-  const bitrate = is1080p ? 5_000_000 : 3_000_000;
+  const bitrate = is1080p ? 6_000_000 : 3_500_000;
 
-  exportStatusLabel.innerHTML = `<span>Extraindo e decodificando áudio original...</span><span>5%</span>`;
+  exportStatusLabel.innerHTML = `<span>Extraindo áudio estéreo em alta fidelidade...</span><span>5%</span>`;
   exportProgressFill.style.width = "5%";
 
   try {
@@ -771,7 +808,7 @@ btnExport.addEventListener("click", async () => {
     const clipAudio = await extractClipAudio(originalFile, startSec, endSec);
     const hasAudio = clipAudio !== null && typeof AudioEncoder !== "undefined";
 
-    exportStatusLabel.innerHTML = `<span>Inicializando WebCodecs VideoEncoder...</span><span>10%</span>`;
+    exportStatusLabel.innerHTML = `<span>Inicializando WebCodecs 60 FPS VideoEncoder...</span><span>10%</span>`;
     exportProgressFill.style.width = "10%";
 
     const encoderConfig = await findSupportedEncoderConfig(exportW, exportH, bitrate);
@@ -817,7 +854,7 @@ btnExport.addEventListener("click", async () => {
           codec: "mp4a.40.2", // AAC-LC
           numberOfChannels: clipAudio.numChannels,
           sampleRate: clipAudio.sampleRate,
-          bitrate: 128_000,
+          bitrate: 192_000,
         });
 
         // Feed audio samples in 1024-frame chunks (standard AAC frame size)
@@ -857,7 +894,7 @@ btnExport.addEventListener("click", async () => {
       }
     }
 
-    // Step C: Encode video frames
+    // Step C: Encode video frames at strict 60 FPS
     let encoderError = null;
     const encoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
@@ -882,7 +919,7 @@ btnExport.addEventListener("click", async () => {
     offscreen.height = exportH;
     const offCtx = offscreen.getContext("2d", { willReadFrequently: false });
 
-    const fps = 30;
+    const fps = 60; // Strict 60 FPS CFR output
     const totalFrames = Math.max(1, Math.floor((endSec - startSec) * fps));
     const frameDurationMicros = Math.round(1_000_000 / fps);
 
@@ -901,7 +938,7 @@ btnExport.addEventListener("click", async () => {
           video.removeEventListener("seeked", onSeeked);
           resolve();
         };
-        timer = setTimeout(onSeeked, 200);
+        timer = setTimeout(onSeeked, 150);
         video.addEventListener("seeked", onSeeked, { once: true });
       });
 
@@ -923,12 +960,13 @@ btnExport.addEventListener("click", async () => {
 
       // Update progress UI
       const pct = Math.round(((f + 1) / totalFrames) * 100);
-      exportStatusLabel.innerHTML = `<span>Renderizando frame ${f + 1}/${totalFrames} na GPU...</span><span>${pct}%</span>`;
+      exportStatusLabel.innerHTML = `<span>Renderizando frame ${f + 1}/${totalFrames} (60 FPS GPU)...</span><span>${pct}%</span>`;
       exportProgressFill.style.width = `${pct}%`;
     }
 
     // Flush encoder and finalize muxer
     exportStatusLabel.innerHTML = `<span>Finalizando container MP4 com áudio...</span><span>98%</span>`;
+
     await encoder.flush();
     encoder.close();
 

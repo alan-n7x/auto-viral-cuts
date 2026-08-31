@@ -602,3 +602,66 @@ async def render_single_clip_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao renderizar clipe no servidor: {str(e)}",
         )
+
+
+@router.post("/extract-clip-audio")
+async def extract_clip_audio_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    start_sec: float = Form(...),
+    end_sec: float = Form(...),
+) -> FileResponse:
+    """
+    Extracts high quality 48kHz stereo WAV audio slice for a specific clip interval.
+    Used by the client browser to avoid reading multi-gigabyte video files in RAM.
+    """
+    ext = os.path.splitext(file.filename or "video.mp4")[1].lower() or ".mp4"
+    temp_input = os.path.join(TEMP_DIR, f"audio_in_{uuid.uuid4().hex[:8]}{ext}")
+    temp_wav = os.path.join(TEMP_DIR, f"clip_audio_{uuid.uuid4().hex[:8]}.wav")
+
+    try:
+        await save_upload_file_stream(file, temp_input)
+        duration = max(0.5, end_sec - start_sec)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(max(0.0, start_sec)),
+            "-i", temp_input,
+            "-t", str(duration),
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "48000",
+            "-ac", "2",
+            temp_wav,
+        ]
+
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"FFmpeg audio extraction failed: {res.stderr[-300:]}")
+
+        def cleanup():
+            for p in (temp_input, temp_wav):
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+        background_tasks.add_task(cleanup)
+
+        return FileResponse(
+            temp_wav,
+            media_type="audio/wav",
+            filename="clip_audio.wav",
+        )
+    except Exception as e:
+        if os.path.exists(temp_input):
+            try:
+                os.remove(temp_input)
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao extrair áudio do clipe: {str(e)}",
+        )
+

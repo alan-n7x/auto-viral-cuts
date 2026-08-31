@@ -161,14 +161,17 @@ class VideoProcessor:
         subtitle_file: Optional[str] = None,
     ) -> str:
         """Constructs FFmpeg filtergraph string for 9:16 vertical conversion (1080x1920) and subtitle overlay."""
-        # Standardized target vertical resolution: 1080x1920 (single-pass downscaling from 4K/1080p)
+        # Standardized target vertical resolution: 1080x1920 with strict 60 FPS CFR
+        fps_prefix = "fps=60,"
         if crop_mode == CropMode.CENTER_CROP:
             vf = (
+                fps_prefix +
                 r"crop='if(gt(iw/ih\,9/16)\,ih*9/16\,iw)':'if(gt(iw/ih\,9/16)\,ih\,iw*16/9)',"
                 r"scale=1080:1920:flags=lanczos"
             )
         elif crop_mode == CropMode.BLURRED_BACKGROUND:
             vf = (
+                fps_prefix +
                 "split[bg_in][fg_in];"
                 "[bg_in]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
                 "[fg_in]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
@@ -176,11 +179,13 @@ class VideoProcessor:
             )
         elif crop_mode == CropMode.FIT_BLACK_BARS:
             vf = (
+                fps_prefix +
                 "scale=1080:1920:force_original_aspect_ratio=decrease,"
                 "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
             )
         else:
             vf = (
+                fps_prefix +
                 "scale=1080:1920:force_original_aspect_ratio=decrease,"
                 "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
             )
@@ -233,12 +238,16 @@ class VideoProcessor:
                 "-filter_hw_device", "va",
             ])
 
-        # Input parameters with fast seek
+        # Input parameters with exact seek, mapping and 60 FPS CFR output
         cmd.extend([
-            "-ss", str(max(0.0, start_sec - 0.5)),
+            "-ss", str(max(0.0, start_sec)),
             "-i", video_path,
-            "-t", str(duration + 0.5),
+            "-t", str(duration),
+            "-map", "0:v:0",
+            "-map", "0:a:0?",
             "-vf", vf_filter,
+            "-r", "60",
+            "-fps_mode", "cfr",
         ])
 
         # Video encoder and quality selection
@@ -270,15 +279,18 @@ class VideoProcessor:
             ])
             accel_desc = "cpu (libx264)"
 
-        # Audio and container parameters
+        # Audio and container parameters (48kHz stereo, sample-accurate sync)
         cmd.extend([
-            "-c:a", options.audio_codec,
+            "-c:a", options.audio_codec or "aac",
             "-b:a", "192k",
-            "-ar", "44100",
+            "-ar", "48000",
+            "-ac", "2",
+            "-af", "aresample=async=1000:first_pts=0",
             output_path,
         ])
 
         return cmd, accel_desc
+
 
     def process_clip(
         self,
