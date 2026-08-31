@@ -17,6 +17,7 @@ const fileDurationVal = document.getElementById("fileDurationVal");
 const fileResVal = document.getElementById("fileResVal");
 
 const btnGenerateManifest = document.getElementById("btnGenerateManifest");
+const btnLocalScene = document.getElementById("btnLocalScene");
 const statusBox = document.getElementById("statusBox");
 const statusText = document.getElementById("statusText");
 const progressBarFill = document.getElementById("progressBarFill");
@@ -106,6 +107,7 @@ function handleFileSelected(file) {
     fileResVal.textContent = `${video.videoWidth}x${video.videoHeight}`;
     fileInfoBox.style.display = "block";
     btnGenerateManifest.disabled = false;
+    if (btnLocalScene) btnLocalScene.disabled = false;
 
     // Set internal canvas resolution to 1080x1920 (standard 9:16)
     previewCanvas.width = 1080;
@@ -123,7 +125,66 @@ video.onseeked = () => {
   }
 };
 
-// 3. Manifest Generation (Local Audio Extraction -> Backend IA)
+// 3a. Local Scene Detection (No AI - FFmpeg scdet + MediaPipe Face)
+btnLocalScene && btnLocalScene.addEventListener("click", async () => {
+  if (!originalFile) return;
+
+  pausePlayback();
+  btnLocalScene.disabled = true;
+  btnGenerateManifest.disabled = true;
+  statusBox.style.display = "block";
+  statusBox.style.borderLeftColor = "var(--accent-cyan, #22d3ee)";
+  updateProgress("Enviando video para analise local (sem IA)...", 10);
+
+  try {
+    const formData = new FormData();
+    // Send the original file directly - backend uses FFmpeg to analyze
+    formData.append("file", originalFile, originalFile.name);
+    formData.append("max_clips", document.getElementById("maxClipsSelect").value);
+
+    const durationSelect = document.getElementById("clipDurationSelect");
+    if (durationSelect && durationSelect.value) {
+      const [minDur, maxDur] = durationSelect.value.split("-").map(Number);
+      if (!isNaN(minDur)) formData.append("min_duration_seconds", minDur);
+      if (!isNaN(maxDur)) formData.append("max_duration_seconds", maxDur);
+    }
+
+    const thresholdSelect = document.getElementById("sceneThresholdSelect");
+    if (thresholdSelect) formData.append("scene_threshold", thresholdSelect.value);
+
+    updateProgress("Detectando cortes de cena e faces via FFmpeg + MediaPipe...", 40);
+
+    const response = await fetch("/api/v1/local-scene-manifest", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: "Erro desconhecido" }));
+      throw new Error(err.detail || `Erro HTTP ${response.status}`);
+    }
+
+    updateProgress("Processando cenas detectadas...", 90);
+    cutsManifests = await response.json();
+
+    if (!cutsManifests || cutsManifests.length === 0) {
+      throw new Error("Nenhuma cena detectada. Tente ajustar a sensibilidade de corte.");
+    }
+
+    updateProgress(`Sucesso! ${cutsManifests.length} cenas detectadas localmente.`, 100);
+    renderCutsList(cutsManifests);
+    selectCut(cutsManifests[0]);
+  } catch (err) {
+    console.error("Erro na deteccao local:", err);
+    updateProgress(`Erro: ${err.message}`, 100);
+    statusBox.style.borderLeftColor = "var(--accent-rose)";
+  } finally {
+    btnLocalScene.disabled = false;
+    btnGenerateManifest.disabled = false;
+  }
+});
+
+// 3b. Manifest Generation (Local Audio Extraction -> Backend IA)
 btnGenerateManifest.addEventListener("click", async () => {
   if (!originalFile) return;
 

@@ -43,6 +43,7 @@ from src.core.schemas import (
 
 from src.core.transcriber import AudioTranscriber, WordTimestamp as TranscriberWord
 from src.core.video_processor import VideoProcessor
+from src.core.local_scene_analyzer import LocalSceneAnalyzer, SceneSegment
 
 
 router = APIRouter(prefix="/api/v1", tags=["Auto Viral Cuts API"])
@@ -408,3 +409,74 @@ async def generate_manifest_endpoint(
                 pass
 
 
+@router.post("/local-scene-manifest", response_model=List[ClientCutManifest])
+async def local_scene_manifest_endpoint(
+    file: UploadFile = File(...),
+    max_clips: int = Form(8),
+    min_duration_seconds: int = Form(25),
+    max_duration_seconds: int = Form(65),
+    scene_threshold: float = Form(0.4),
+    crop_mode: str = Form("face_crop"),
+) -> List[ClientCutManifest]:
+    """
+    Detects viral clip candidates from a video file using ONLY local tools:
+      - FFmpeg scene change detection (scdet)
+      - FFmpeg audio energy analysis (volumedetect, silencedetect)
+      - MediaPipe face detection for smart 9:16 crop positioning
+
+    No AI API (Groq / Gemini) is used. No internet connection required.
+    """
+    ext = os.path.splitext(file.filename or "video.mp4")[1].lower() or ".mp4"
+    temp_file_path = os.path.join(TEMP_DIR, f"local_scene_{uuid.uuid4().hex[:8]}{ext}")
+
+    try:
+        await save_upload_file_stream(file, temp_file_path)
+
+        analyzer = LocalSceneAnalyzer()
+        segments = analyzer.analyze_video(
+            video_path=temp_file_path,
+            max_clips=max_clips,
+            min_duration=float(min_duration_seconds),
+            max_duration=float(max_duration_seconds),
+            scene_threshold=scene_threshold,
+        )
+
+        if not segments:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Nenhum segmento detectado. Tente reduzir o scene_threshold ou verificar se o video possui audio e video.",
+            )
+
+        manifests: List[ClientCutManifest] = []
+        for idx, seg in enumerate(segments):
+            virality_score = min(100, max(0, int(seg.score)))
+            manifests.append(
+                ClientCutManifest(
+                    cut_id=f"local_{idx + 1}_{uuid.uuid4().hex[:6]}",
+                    title=seg.title,
+                    start_sec=seg.start_sec,
+                    end_sec=seg.end_sec,
+                    viral_score=virality_score,
+                    hook=f"Cena detectada localmente - {seg.duration:.0f}s - {'Com fala' if seg.has_speech else 'Sem fala'}",
+                    crop_mode=crop_mode,
+                    words=[],
+                    subtitles_pt=[],
+                    subtitle_language="original",
+                )
+            )
+
+        return manifests
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro na analise local de cenas: {str(e)}",
+        )
+    finally:
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
