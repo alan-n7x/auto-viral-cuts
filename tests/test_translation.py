@@ -140,9 +140,20 @@ def test_generate_manifest_endpoint_with_translation(client):
         ],
     )
 
+    from src.core.transcriber import WordTimestamp as TranscriberWord
+
+    mock_words = [
+        TranscriberWord(word="Hello", start=5.0, end=5.5),
+        TranscriberWord(word="world", start=5.6, end=6.0),
+        TranscriberWord(word="this", start=6.1, end=6.4),
+        TranscriberWord(word="is", start=6.5, end=6.7),
+        TranscriberWord(word="a", start=6.8, end=6.9),
+        TranscriberWord(word="test", start=7.0, end=7.5),
+    ]
+
     with patch("src.core.gemini_analyzer.GeminiAnalyzer.analyze_video", return_value=mock_analysis), \
          patch("src.core.transcriber.AudioTranscriber.is_available", return_value=True), \
-         patch("src.core.transcriber.AudioTranscriber.transcribe", return_value=[]):
+         patch("src.core.transcriber.AudioTranscriber.transcribe", return_value=mock_words):
 
         response = client.post("/api/v1/generate-manifest", files=files, data=data)
 

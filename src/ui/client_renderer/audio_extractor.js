@@ -18,6 +18,19 @@ export class ClientAudioExtractor {
       return file;
     }
 
+    // For large videos (>200 MB) the browser cannot load the full arrayBuffer into RAM.
+    // Send the video file directly — the backend uses FFmpeg to extract audio server-side.
+    const MAX_LOCAL_EXTRACT_BYTES = 200 * 1024 * 1024; // 200 MB
+    if (file.size > MAX_LOCAL_EXTRACT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(0);
+      onProgress(
+        `Video grande (${sizeMb} MB) detectado — enviando direto para extração no servidor via FFmpeg...`,
+        100
+      );
+      console.log(`[AudioExtractor] Arquivo ${sizeMb} MB > 200 MB, pulando extração local.`);
+      return file;
+    }
+
     onProgress("Lendo arquivo de vídeo local na memória...", 15);
     const audioContext = new (window.AudioContext || window.webkitAudioContext)({
       sampleRate: 16000,

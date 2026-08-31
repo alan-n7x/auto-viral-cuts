@@ -1,5 +1,7 @@
 import os
 import shutil
+import subprocess
+import tempfile
 import uuid
 from typing import List, Optional
 
@@ -235,21 +237,85 @@ async def generate_manifest_endpoint(
     try:
         await save_upload_file_stream(file, temp_file_path)
 
-        # 1. Speech-to-text transcription (Groq Whisper cloud or local faster-whisper)
+        # 1a. If the received file is a video (not WAV/MP3/audio), extract audio via FFmpeg first.
+        #     This handles the case where the browser sent the raw video (>200 MB) directly.
+        audio_path_for_transcription = temp_file_path
+        _tmp_extracted_audio: Optional[str] = None
+
+        uploaded_mime = (file.content_type or "").lower()
+        uploaded_ext = os.path.splitext(temp_file_path)[1].lower()
+        is_video_file = uploaded_mime.startswith("video/") or uploaded_ext in (
+            ".mp4", ".mkv", ".mov", ".avi", ".webm", ".ts", ".m2ts", ".flv", ".wmv",
+        )
+
+        if is_video_file:
+            print(
+                f"[{__import__('time').strftime('%H:%M:%S')}] Video detectado ({uploaded_ext}), "
+                f"extraindo audio via FFmpeg para transcricao..."
+            )
+            _tmp_extracted_audio = tempfile.NamedTemporaryFile(
+                suffix="_audio.wav", delete=False, dir=TEMP_DIR
+            ).name
+            ffmpeg_extract_cmd = [
+                "ffmpeg", "-y",
+                "-i", temp_file_path,
+                "-vn",  # no video
+                "-acodec", "pcm_s16le",
+                "-ar", "16000",
+                "-ac", "1",
+                _tmp_extracted_audio,
+            ]
+            try:
+                subprocess.run(
+                    ffmpeg_extract_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True,
+                )
+                audio_path_for_transcription = _tmp_extracted_audio
+                print(
+                    f"[{__import__('time').strftime('%H:%M:%S')}] Audio extraido: "
+                    f"{os.path.getsize(_tmp_extracted_audio) / (1024**2):.1f} MB"
+                )
+            except Exception as ffmpeg_err:
+                print(f"Aviso: Extracao de audio via FFmpeg falhou ({ffmpeg_err}), tentando com arquivo original.")
+                audio_path_for_transcription = temp_file_path
+
+        # 1b. Speech-to-text transcription (Groq Whisper cloud or local faster-whisper)
         all_words: List[TranscriberWord] = []
         if ai_provider == AiProvider.GROQ and (groq_api_key or os.getenv("GROQ_API_KEY")):
 
             try:
                 groq_inst = GroqAnalyzer(api_key=groq_api_key)
-                all_words = groq_inst.transcribe_audio_fast(temp_file_path)
+                all_words = groq_inst.transcribe_audio_fast(audio_path_for_transcription)
             except Exception as e:
-                print(f"Aviso: Transcrição via Groq Cloud falhou ({e}), usando faster-whisper local...")
+                print(f"Aviso: Transcricao via Groq Cloud falhou ({e}), usando faster-whisper local...")
 
         if not all_words:
             if not AudioTranscriber.is_available():
-                raise RuntimeError("faster-whisper não está disponível no servidor.")
+                raise RuntimeError("faster-whisper nao esta disponivel no servidor.")
             transcriber = AudioTranscriber()
-            all_words = transcriber.transcribe(temp_file_path, model_size=whisper_model)
+            all_words = transcriber.transcribe(audio_path_for_transcription, model_size=whisper_model)
+
+        # Clean up extracted audio temp file if it was created
+        if _tmp_extracted_audio and _tmp_extracted_audio != temp_file_path:
+            try:
+                os.remove(_tmp_extracted_audio)
+            except Exception:
+                pass
+
+        if not all_words:
+            raise RuntimeError(
+                "A transcricao retornou vazia. Verifique se o video possui faixa de audio "
+                "audivel. Codec suportados: AAC, MP3, Opus, PCM. Se o video e muito grande, "
+                "tente um clipe menor ou o Modo Servidor (Gradio) para processamento completo."
+            )
+
+        print(
+            f"[{__import__('time').strftime('%H:%M:%S')}] Transcricao concluida: "
+            f"{len(all_words)} palavras detectadas."
+        )
 
         formatted_transcript = AudioTranscriber.format_transcript_with_timestamps(all_words)
 
