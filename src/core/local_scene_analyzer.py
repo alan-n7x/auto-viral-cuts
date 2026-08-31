@@ -3,9 +3,9 @@
 Uses three heuristics entirely on the local machine:
   1. FFmpeg scdet (scene change detection) - finds natural cut points
   2. FFmpeg silencedetect / volumedetect - finds audio energy peaks
-  3. MediaPipe Face Detection - tracks face position per segment for smart 9:16 crop
+  3. MediaPipe / OpenCV Face Detection - tracks face position per segment for smart 9:16 crop
 
-No internet connection required. No API key required. No GPU required.
+No internet connection required for analysis. No API key required.
 """
 
 import math
@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import time
+import urllib.request
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -47,6 +48,7 @@ class LocalSceneAnalyzer:
 
     def __init__(self) -> None:
         self._face_detector = None
+        self._detector_type = None  # 'tasks' or 'solutions'
 
     # ---------------------------------------------------------------
     # Public API
@@ -76,7 +78,11 @@ class LocalSceneAnalyzer:
         print(f"[{time.strftime('%H:%M:%S')}] [LocalSceneAnalyzer] {len(segments)} segmentos. Analisando audio e faces...")
 
         segments = self._score_audio(video_path, segments)
-        segments = self._detect_faces(video_path, segments)
+        
+        try:
+            segments = self._detect_faces(video_path, segments)
+        except Exception as e:
+            print(f"[LocalSceneAnalyzer] Aviso na deteccao de faces (usando enquadramento padrao): {e}")
 
         for seg in segments:
             seg.score = self._compute_score(seg)
@@ -192,38 +198,71 @@ class LocalSceneAnalyzer:
         return segments
 
     # ---------------------------------------------------------------
-    # Step 4: Face detection via MediaPipe
+    # Step 4: Face detection via MediaPipe Tasks / Solutions
     # ---------------------------------------------------------------
 
     def _get_face_detector(self):
-        if self._face_detector is None:
-            try:
-                import mediapipe as mp
+        if self._face_detector is not None:
+            return self._face_detector
+
+        # Strategy 1: MediaPipe Tasks (MediaPipe >= 1.0)
+        try:
+            import mediapipe as mp
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
+
+            model_dir = os.path.expanduser("~/.cache/mediapipe")
+            os.makedirs(model_dir, exist_ok=True)
+            model_path = os.path.join(model_dir, "blaze_face_short_range.tflite")
+
+            if not os.path.exists(model_path):
+                url = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
+                try:
+                    urllib.request.urlretrieve(url, model_path)
+                except Exception as dl_err:
+                    print(f"[LocalSceneAnalyzer] Download do modelo face detection falhou: {dl_err}")
+
+            if os.path.exists(model_path):
+                base_options = python.BaseOptions(model_asset_path=model_path)
+                options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.4)
+                self._face_detector = vision.FaceDetector.create_from_options(options)
+                self._detector_type = "tasks"
+                return self._face_detector
+        except Exception as e:
+            pass
+
+        # Strategy 2: MediaPipe Solutions (Legacy MediaPipe < 1.0)
+        try:
+            import mediapipe as mp
+            if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_detection"):
                 self._face_detector = mp.solutions.face_detection.FaceDetection(
                     model_selection=1,
                     min_detection_confidence=0.4,
                 )
-            except ImportError:
-                print("[LocalSceneAnalyzer] MediaPipe nao disponivel - pulando deteccao de faces.")
-        return self._face_detector
+                self._detector_type = "solutions"
+                return self._face_detector
+        except Exception:
+            pass
+
+        return None
 
     def _extract_frame(self, video_path: str, timestamp: float) -> Optional[object]:
         """Extracts a single RGB frame at timestamp using FFmpeg pipe -> numpy array."""
-        probe = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", video_path],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5,
-        )
-        wh = probe.stdout.strip()
-        if "x" not in wh:
-            return None
-        w, h = map(int, wh.split("x"))
-
-        cmd = ["ffmpeg", "-ss", str(timestamp), "-i", video_path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
-        if not result.stdout:
-            return None
         try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", video_path],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5,
+            )
+            wh = probe.stdout.strip()
+            if "x" not in wh:
+                return None
+            w, h = map(int, wh.split("x"))
+
+            cmd = ["ffmpeg", "-ss", str(timestamp), "-i", video_path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+            if not result.stdout:
+                return None
             import numpy as np
             return np.frombuffer(result.stdout, dtype=np.uint8).reshape((h, w, 3))
         except Exception:
@@ -233,6 +272,7 @@ class LocalSceneAnalyzer:
         detector = self._get_face_detector()
         if detector is None:
             return segments
+
         for seg in segments:
             duration = seg.end_sec - seg.start_sec
             sample_times = [seg.start_sec + duration * f for f in (0.25, 0.50, 0.75)]
@@ -242,11 +282,25 @@ class LocalSceneAnalyzer:
                 if frame is None:
                     continue
                 try:
-                    detection = detector.process(frame)
-                    if detection.detections:
-                        bbox = detection.detections[0].location_data.relative_bounding_box
-                        xs.append(bbox.xmin + bbox.width / 2)
-                        ys.append(bbox.ymin + bbox.height / 2)
+                    if self._detector_type == "tasks":
+                        import mediapipe as mp
+                        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+                        res = detector.detect(mp_img)
+                        if res and res.detections:
+                            bbox = res.detections[0].bounding_box
+                            fh, fw, _ = frame.shape
+                            cx = (bbox.origin_x + bbox.width / 2.0) / max(1, fw)
+                            cy = (bbox.origin_y + bbox.height / 2.0) / max(1, fh)
+                            xs.append(max(0.0, min(1.0, cx)))
+                            ys.append(max(0.0, min(1.0, cy)))
+                    elif self._detector_type == "solutions":
+                        detection = detector.process(frame)
+                        if detection and detection.detections:
+                            bbox = detection.detections[0].location_data.relative_bounding_box
+                            cx = bbox.xmin + bbox.width / 2
+                            cy = bbox.ymin + bbox.height / 2
+                            xs.append(max(0.0, min(1.0, cx)))
+                            ys.append(max(0.0, min(1.0, cy)))
                 except Exception:
                     pass
             if xs:
