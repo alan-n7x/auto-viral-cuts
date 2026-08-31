@@ -590,12 +590,18 @@ btnExportFfmpeg && btnExportFfmpeg.addEventListener("click", async () => {
   btnExportFfmpeg.disabled = true;
   btnExport.disabled = true;
   exportProgressArea.style.display = "block";
-  exportStatusLabel.innerHTML = `<span>Enviando clipe para renderização de alta qualidade no servidor FFmpeg...</span><span>15%</span>`;
-  exportProgressFill.style.width = "15%";
+  exportProgressFill.style.width = "20%";
 
   try {
     const formData = new FormData();
-    formData.append("file", originalFile, originalFile.name);
+    if (activeCut.video_token) {
+      exportStatusLabel.innerHTML = `<span>Usando vídeo em cache no servidor — renderização instantânea via FFmpeg (60 FPS CFR + AAC 192k)...</span><span>30%</span>`;
+      formData.append("video_token", activeCut.video_token);
+    } else {
+      exportStatusLabel.innerHTML = `<span>Enviando vídeo para o servidor FFmpeg...</span><span>20%</span>`;
+      formData.append("file", originalFile, originalFile.name);
+    }
+
     formData.append("title", activeCut.title_pt || activeCut.title || "corte");
     formData.append("start_sec", activeCut.start_sec);
     formData.append("end_sec", activeCut.end_sec);
@@ -609,8 +615,8 @@ btnExportFfmpeg && btnExportFfmpeg.addEventListener("click", async () => {
       formData.append("burn_subtitles", "false");
     }
 
-    exportStatusLabel.innerHTML = `<span>Processando vídeo vertical 9:16 com áudio estéreo 192k e aceleração de hardware...</span><span>50%</span>`;
-    exportProgressFill.style.width = "50%";
+    exportStatusLabel.innerHTML = `<span>Processando vídeo vertical 1080x1920 (60 FPS CFR) com áudio estéreo cristalino na GPU/FFmpeg...</span><span>60%</span>`;
+    exportProgressFill.style.width = "60%";
 
     const res = await fetch("/api/v1/render-single-clip", {
       method: "POST",
@@ -622,7 +628,7 @@ btnExportFfmpeg && btnExportFfmpeg.addEventListener("click", async () => {
       throw new Error(err.detail || `Erro HTTP ${res.status}`);
     }
 
-    exportStatusLabel.innerHTML = `<span>Download do clipe finalizado com sucesso!</span><span>100%</span>`;
+    exportStatusLabel.innerHTML = `<span>Vídeo 60 FPS e áudio 100% finalizados! Baixando...</span><span>100%</span>`;
     exportProgressFill.style.width = "100%";
 
     const blob = await res.blob();

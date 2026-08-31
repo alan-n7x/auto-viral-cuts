@@ -390,20 +390,30 @@ async def generate_manifest_endpoint(
                     words=clip_words,
                     subtitles_pt=clip.subtitles_pt,
                     subtitle_language=subtitle_language.value,
+                    video_token=temp_file_name if is_video_file else None,
                 )
             )
 
         return manifests
 
-
-
     except Exception as e:
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao gerar manifesto para cliente: {str(e)}",
         )
     finally:
-        if os.path.exists(temp_file_path):
+        if _tmp_extracted_audio and os.path.exists(_tmp_extracted_audio):
+            try:
+                os.remove(_tmp_extracted_audio)
+            except Exception:
+                pass
+        # Only clean up temp_file_path if it was an audio file, not a video used for subsequent cuts
+        if not is_video_file and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
             except Exception:
@@ -449,6 +459,7 @@ async def local_scene_manifest_endpoint(
             )
 
         manifests: List[ClientCutManifest] = []
+        token_name = os.path.basename(temp_file_path)
         for idx, seg in enumerate(segments):
             virality_score = min(100, max(0, int(seg.score)))
             manifests.append(
@@ -463,6 +474,7 @@ async def local_scene_manifest_endpoint(
                     words=[],
                     subtitles_pt=[],
                     subtitle_language="original",
+                    video_token=token_name,
                 )
             )
 
@@ -471,22 +483,22 @@ async def local_scene_manifest_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro na analise local de cenas: {str(e)}",
-        )
-    finally:
         if os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
             except Exception:
                 pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro na analise local de cenas: {str(e)}",
+        )
 
 
 @router.post("/render-single-clip")
 async def render_single_clip_endpoint(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    video_token: Optional[str] = Form(None),
     title: str = Form("corte"),
     start_sec: float = Form(...),
     end_sec: float = Form(...),
@@ -499,19 +511,35 @@ async def render_single_clip_endpoint(
     Renders a single 9:16 vertical clip with FFmpeg on the server:
       - 100% perfect stereo audio synchronization (AAC 192kbps)
       - Hardware acceleration (VAAPI / NVENC / CPU libx264)
-      - Precision crop (center_crop / face_crop)
-      - Dynamic subtitle burn-in (if provided)
+      - Strict 60 FPS CFR output
+      - Faststart moov atom header for instant VLC / Kdenlive playback
+      - Uses cached server video_token when available (instant, zero re-upload)
 
-    Streams the rendered MP4 file directly for download, zero browser RAM freezing.
+    Streams the rendered MP4 file directly for download.
     """
-    ext = os.path.splitext(file.filename or "video.mp4")[1].lower() or ".mp4"
-    temp_input = os.path.join(TEMP_DIR, f"render_in_{uuid.uuid4().hex[:8]}{ext}")
+    temp_input = None
+    created_temp_input = False
+
+    if video_token:
+        cached_path = os.path.join(TEMP_DIR, os.path.basename(video_token))
+        if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
+            temp_input = cached_path
+
+    if not temp_input:
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nenhum arquivo ou video_token válido foi fornecido.",
+            )
+        ext = os.path.splitext(file.filename or "video.mp4")[1].lower() or ".mp4"
+        temp_input = os.path.join(TEMP_DIR, f"render_in_{uuid.uuid4().hex[:8]}{ext}")
+        await save_upload_file_stream(file, temp_input)
+        created_temp_input = True
+
     safe_title = "".join(c if c.isalnum() else "_" for c in title[:35]).strip("_") or "corte"
     temp_output = os.path.join(TEMP_DIR, f"{safe_title}_{uuid.uuid4().hex[:6]}.mp4")
 
     try:
-        await save_upload_file_stream(file, temp_input)
-
         vp = VideoProcessor()
         in_w, in_h = vp.get_video_dimensions(temp_input)
         hw_mode, _, _ = VideoProcessor.detect_hw_accel()
@@ -553,7 +581,7 @@ async def render_single_clip_endpoint(
             subtitle_file=subtitle_file,
         )
 
-        print(f"[{__import__('time').strftime('%H:%M:%S')}] Renderizando clipe via FFmpeg: {start_sec:.1f}s a {end_sec:.1f}s...")
+        print(f"[{__import__('time').strftime('%H:%M:%S')}] Renderizando clipe via FFmpeg: {start_sec:.1f}s a {end_sec:.1f}s (60 FPS CFR + AAC 192k)...")
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
             # Fallback to pure CPU libx264
@@ -573,9 +601,12 @@ async def render_single_clip_endpoint(
             if res_cpu.returncode != 0:
                 raise RuntimeError(f"FFmpeg falhou: {res_cpu.stderr[-500:]}")
 
-        # Schedule temp cleanup after file is streamed
+        # Schedule cleanup
         def cleanup_files():
-            for p in (temp_input, temp_output, subtitle_file):
+            files_to_remove = [temp_output, subtitle_file]
+            if created_temp_input:
+                files_to_remove.append(temp_input)
+            for p in files_to_remove:
                 if p and os.path.exists(p):
                     try:
                         os.remove(p)

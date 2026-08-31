@@ -279,13 +279,14 @@ class VideoProcessor:
             ])
             accel_desc = "cpu (libx264)"
 
-        # Audio and container parameters (48kHz stereo, sample-accurate sync)
+        # Audio and container parameters (48kHz stereo, sample-accurate sync, faststart moov header)
         cmd.extend([
             "-c:a", options.audio_codec or "aac",
             "-b:a", "192k",
             "-ar", "48000",
             "-ac", "2",
             "-af", "aresample=async=1000:first_pts=0",
+            "-movflags", "+faststart",
             output_path,
         ])
 

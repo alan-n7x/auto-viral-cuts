@@ -429,7 +429,11 @@ class ClientCutManifest(BaseModel):
     )
     subtitle_language: str = Field(
         default="original",
-        description="Idioma configurado para as legendas ('original', 'pt_br', 'en').",
+        description="Idioma das legendas: 'original', 'pt_br' ou 'en'.",
+    )
+    video_token: Optional[str] = Field(
+        default=None,
+        description="Token de cache do vídeo no servidor para renderização instantânea via FFmpeg sem re-upload.",
     )
 
 
