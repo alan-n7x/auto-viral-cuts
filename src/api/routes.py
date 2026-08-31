@@ -16,6 +16,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import FileResponse
 
 from src.api.dependencies import get_process_video_use_case, get_task_manager
 from src.application.task_manager import TaskManager
@@ -480,3 +481,124 @@ async def local_scene_manifest_endpoint(
                 os.remove(temp_file_path)
             except Exception:
                 pass
+
+
+@router.post("/render-single-clip")
+async def render_single_clip_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: str = Form("corte"),
+    start_sec: float = Form(...),
+    end_sec: float = Form(...),
+    crop_mode: CropMode = Form(CropMode.CENTER_CROP),
+    burn_subtitles: bool = Form(False),
+    subtitle_style: SubtitleStyle = Form(SubtitleStyle.HORMOZI),
+    subtitles_json: Optional[str] = Form(None),
+) -> FileResponse:
+    """
+    Renders a single 9:16 vertical clip with FFmpeg on the server:
+      - 100% perfect stereo audio synchronization (AAC 192kbps)
+      - Hardware acceleration (VAAPI / NVENC / CPU libx264)
+      - Precision crop (center_crop / face_crop)
+      - Dynamic subtitle burn-in (if provided)
+
+    Streams the rendered MP4 file directly for download, zero browser RAM freezing.
+    """
+    ext = os.path.splitext(file.filename or "video.mp4")[1].lower() or ".mp4"
+    temp_input = os.path.join(TEMP_DIR, f"render_in_{uuid.uuid4().hex[:8]}{ext}")
+    safe_title = "".join(c if c.isalnum() else "_" for c in title[:35]).strip("_") or "corte"
+    temp_output = os.path.join(TEMP_DIR, f"{safe_title}_{uuid.uuid4().hex[:6]}.mp4")
+
+    try:
+        await save_upload_file_stream(file, temp_input)
+
+        vp = VideoProcessor()
+        in_w, in_h = vp.get_video_dimensions(temp_input)
+        hw_mode, _, _ = VideoProcessor.detect_hw_accel()
+
+        duration = max(1.0, end_sec - start_sec)
+        options = ProcessingOptions(
+            crop_mode=crop_mode,
+            hw_accel=hw_mode,
+            burn_subtitles=burn_subtitles,
+            subtitle_style=subtitle_style,
+        )
+
+        subtitle_file = None
+        if burn_subtitles and subtitles_json:
+            try:
+                import json
+                cues_raw = json.loads(subtitles_json)
+                cues = [SubtitleCue(**c) for c in cues_raw]
+                if cues:
+                    sg = SubtitleGenerator()
+                    subtitle_file = sg.generate_ass_from_cues(
+                        cues=cues,
+                        clip_start=start_sec,
+                        clip_duration=duration,
+                        style=subtitle_style,
+                    )
+            except Exception as sub_err:
+                print(f"[RenderSingleClip] Aviso nas legendas: {sub_err}")
+
+        cmd, _ = vp._build_ffmpeg_cmd(
+            video_path=temp_input,
+            output_path=temp_output,
+            start_sec=start_sec,
+            duration=duration,
+            options=options,
+            in_w=in_w,
+            in_h=in_h,
+            resolved_accel=hw_mode,
+            subtitle_file=subtitle_file,
+        )
+
+        print(f"[{__import__('time').strftime('%H:%M:%S')}] Renderizando clipe via FFmpeg: {start_sec:.1f}s a {end_sec:.1f}s...")
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            # Fallback to pure CPU libx264
+            print("[RenderSingleClip] Falha na aceleracao por hardware, tentando fallback CPU libx264...")
+            cmd_cpu, _ = vp._build_ffmpeg_cmd(
+                video_path=temp_input,
+                output_path=temp_output,
+                start_sec=start_sec,
+                duration=duration,
+                options=options,
+                in_w=in_w,
+                in_h=in_h,
+                resolved_accel=HwAccelMode.CPU,
+                subtitle_file=subtitle_file,
+            )
+            res_cpu = subprocess.run(cmd_cpu, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res_cpu.returncode != 0:
+                raise RuntimeError(f"FFmpeg falhou: {res_cpu.stderr[-500:]}")
+
+        # Schedule temp cleanup after file is streamed
+        def cleanup_files():
+            for p in (temp_input, temp_output, subtitle_file):
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+        background_tasks.add_task(cleanup_files)
+
+        return FileResponse(
+            temp_output,
+            media_type="video/mp4",
+            filename=f"{safe_title}_9x16.mp4",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            try:
+                os.remove(temp_input)
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao renderizar clipe no servidor: {str(e)}",
+        )

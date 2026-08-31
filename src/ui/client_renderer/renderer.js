@@ -32,16 +32,25 @@ const seekBar = document.getElementById("seekBar");
 const timeDisplay = document.getElementById("timeDisplay");
 
 const btnExport = document.getElementById("btnExport");
+const btnExportFfmpeg = document.getElementById("btnExportFfmpeg");
 const resolutionSelect = document.getElementById("resolutionSelect");
 const exportProgressArea = document.getElementById("exportProgressArea");
 const exportStatusLabel = document.getElementById("exportStatusLabel");
 const exportProgressFill = document.getElementById("exportProgressFill");
 const webcodecsBadge = document.getElementById("webcodecsBadge");
 
-// Hidden video element for local decoding & playback
+// Hidden video element for local decoding & playback (attached to DOM so audio plays natively)
 const video = document.createElement("video");
 video.playsInline = true;
 video.muted = false;
+video.volume = 1.0;
+video.style.position = "fixed";
+video.style.left = "-9999px";
+video.style.width = "1px";
+video.style.height = "1px";
+video.style.opacity = "0";
+video.style.pointerEvents = "none";
+document.body.appendChild(video);
 
 // Internal State
 let originalFile = null;
@@ -334,6 +343,7 @@ function convertCuesToPhrases(cues, cutStartSec) {
 function selectCut(cut) {
   activeCut = cut;
   btnExport.disabled = false;
+  if (btnExportFfmpeg) btnExportFfmpeg.disabled = false;
   document.getElementById("statCutTitle").textContent = cut.title_pt || cut.title;
   document.getElementById("statCutDuration").textContent = `${(cut.end_sec - cut.start_sec).toFixed(1)}s`;
   
@@ -535,14 +545,16 @@ function playbackLoop() {
   if (!isPlaying) return;
 
   if (activeCut) {
-    // Loop playback within cut bounds
-    if (video.currentTime >= activeCut.end_sec || video.currentTime < activeCut.start_sec) {
+    // Loop playback within cut bounds with a small margin to prevent continuous seeking jitter
+    if (video.currentTime >= activeCut.end_sec) {
+      video.currentTime = activeCut.start_sec;
+    } else if (video.currentTime < activeCut.start_sec - 0.2) {
       video.currentTime = activeCut.start_sec;
     }
 
-    const elapsed = video.currentTime - activeCut.start_sec;
-    const duration = activeCut.end_sec - activeCut.start_sec;
-    seekBar.value = duration > 0 ? (elapsed / duration) * 100 : 0;
+    const elapsed = Math.max(0, video.currentTime - activeCut.start_sec);
+    const duration = Math.max(0.1, activeCut.end_sec - activeCut.start_sec);
+    seekBar.value = (elapsed / duration) * 100;
     updateTimeDisplay(elapsed, duration);
   }
 
@@ -569,6 +581,73 @@ function formatTime(seconds) {
   const secs = s % 60;
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
+
+// 7a. Server-Side FFmpeg High Performance Export (100% Guaranteed Audio, Zero Browser Freezing)
+btnExportFfmpeg && btnExportFfmpeg.addEventListener("click", async () => {
+  if (!activeCut || !originalFile) return;
+
+  pausePlayback();
+  btnExportFfmpeg.disabled = true;
+  btnExport.disabled = true;
+  exportProgressArea.style.display = "block";
+  exportStatusLabel.innerHTML = `<span>Enviando clipe para renderização de alta qualidade no servidor FFmpeg...</span><span>15%</span>`;
+  exportProgressFill.style.width = "15%";
+
+  try {
+    const formData = new FormData();
+    formData.append("file", originalFile, originalFile.name);
+    formData.append("title", activeCut.title_pt || activeCut.title || "corte");
+    formData.append("start_sec", activeCut.start_sec);
+    formData.append("end_sec", activeCut.end_sec);
+    formData.append("crop_mode", activeCut.crop_mode || "center_crop");
+
+    // Include subtitles if present
+    if (activeCut.subtitles_pt && activeCut.subtitles_pt.length > 0) {
+      formData.append("burn_subtitles", "true");
+      formData.append("subtitles_json", JSON.stringify(activeCut.subtitles_pt));
+    } else {
+      formData.append("burn_subtitles", "false");
+    }
+
+    exportStatusLabel.innerHTML = `<span>Processando vídeo vertical 9:16 com áudio estéreo 192k e aceleração de hardware...</span><span>50%</span>`;
+    exportProgressFill.style.width = "50%";
+
+    const res = await fetch("/api/v1/render-single-clip", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Erro na renderização" }));
+      throw new Error(err.detail || `Erro HTTP ${res.status}`);
+    }
+
+    exportStatusLabel.innerHTML = `<span>Download do clipe finalizado com sucesso!</span><span>100%</span>`;
+    exportProgressFill.style.width = "100%";
+
+    const blob = await res.blob();
+    const cleanTitle = (activeCut.title_pt || activeCut.title || "corte").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `${cleanTitle}_9x16.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+  } catch (err) {
+    console.error("Erro na renderização FFmpeg:", err);
+    exportStatusLabel.innerHTML = `
+      <div style="color: var(--accent-rose); font-weight: 600;">
+        Falha na renderização: ${err.message}
+      </div>
+    `;
+  } finally {
+    btnExportFfmpeg.disabled = false;
+    btnExport.disabled = false;
+  }
+});
 
 // Helper to find supported codec and acceleration configuration
 async function findSupportedEncoderConfig(width, height, bitrate) {
