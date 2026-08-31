@@ -64,9 +64,22 @@
       <div class="form-group">
         <label class="form-label" for="maxClipsSelect">Quantidade de Cortes Virais:</label>
         <select id="maxClipsSelect" class="form-select">
-          <option value="3">3 Cortes Estratégicos</option>
-          <option value="5" selected>5 Cortes (Recomendado)</option>
-          <option value="8">8 Cortes Rápidos</option>
+          <option value="3">3 Cortes (Video curto, <5min)</option>
+          <option value="5">5 Cortes (Video medio, ~10min)</option>
+          <option value="8">8 Cortes (Recomendado, ~15min)</option>
+          <option value="12" selected>12 Cortes (Video longo, ~20-30min)</option>
+          <option value="15">15 Cortes (Podcast completo)</option>
+          <option value="20">20 Cortes (Maximo - Video muito longo)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="clipDurationSelect">Duracao por Corte:</label>
+        <select id="clipDurationSelect" class="form-select">
+          <option value="20-45">20-45s (Shorts / TikTok rapido)</option>
+          <option value="30-60" selected>30-60s (Padrao recomendado)</option>
+          <option value="45-75">45-75s (Reels / Conteudo denso)</option>
+          <option value="60-90">60-90s (YouTube Shorts longo)</option>
         </select>
       </div>
 

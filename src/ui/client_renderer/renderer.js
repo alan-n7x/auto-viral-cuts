@@ -158,6 +158,16 @@ btnGenerateManifest.addEventListener("click", async () => {
     formData.append("subtitle_language", subLang);
     formData.append("translate_to_pt", subLang === "pt_br" ? "true" : "false");
 
+    // Parse duration range from selector (format: "30-60")
+    const durationSelect = document.getElementById("clipDurationSelect");
+    if (durationSelect && durationSelect.value) {
+      const [minDur, maxDur] = durationSelect.value.split("-").map(Number);
+      if (!isNaN(minDur) && !isNaN(maxDur)) {
+        formData.append("min_duration_seconds", minDur);
+        formData.append("max_duration_seconds", maxDur);
+      }
+    }
+
     if (groqKey) {
       formData.append("groq_api_key", groqKey);
     }
@@ -166,6 +176,7 @@ btnGenerateManifest.addEventListener("click", async () => {
     if (promptInput) {
       formData.append("custom_prompt", promptInput);
     }
+
 
     const response = await fetch("/api/v1/generate-manifest", {
       method: "POST",
